@@ -172,7 +172,37 @@ cd Subtitle
 pip install -r requirements.txt
 ```
 
-### 4. 安装Ollama（可选，用于本地LLM）
+### 4. 启动 bgutil PO Token 服务（必需）
+
+YouTube 当前所有客户端均需要 GVS PO Token 才能正常下载。本项目通过 [bgutil-ytdlp-pot-provider](https://github.com/coletdjnz/yt-dlp-youtube-oauth2) 插件和 Docker 服务自动获取 Token。
+
+**步骤一：在 WSL 或 Linux 中启动 Docker 服务**
+
+```bash
+docker run -d \
+  --name bgutil-pot \
+  -p 4416:4416 \
+  --restart unless-stopped \
+  ghcr.io/nickovs/bgutil-ytdlp-pot-provider:latest
+```
+
+服务启动后监听 `127.0.0.1:4416`，yt-dlp 插件会自动连接，无需额外配置。
+
+**步骤二：安装 yt-dlp 插件**
+
+```bash
+pip install bgutil-ytdlp-pot-provider
+```
+
+验证插件加载成功：
+
+```bash
+yt-dlp --version   # 运行时日志应显示 bgutil:http-x.x.x (external)
+```
+
+> **注意**：每次重启机器后需确认 Docker 服务正在运行（`docker ps`），否则下载时会因无法获取 PO Token 而失败。
+
+### 5. 安装Ollama（可选，用于本地LLM）
 
 访问 [Ollama官网](https://ollama.com/) 下载并安装，然后下载模型：
 
