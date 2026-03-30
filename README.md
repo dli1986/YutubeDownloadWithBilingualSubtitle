@@ -236,15 +236,19 @@ translator:
 
 ### 视频类型配置
 
+视频类型由 `videos.txt` 中 URL 后的标注**人工指定**，类型名同时决定输出目录结构（`output/<类型>/`）。`config.yaml` 中每个类型只需配置翻译风格，新增类型无需修改任何代码：
+
 ```yaml
 video_types:
   baby:
-    keywords: ["kids", "baby", "toddler", "preschool"]
     translation_style: "使用简单、亲切、充满童趣的语言..."
   
   tech:
-    keywords: ["tech", "programming", "code", "AI"]
     translation_style: "使用准确、专业的技术术语..."
+  
+  # 新增类型只需追加 key + translation_style
+  # sports:
+  #   translation_style: "使用运动相关术语，语言简洁有力..."
 ```
 
 ## 🚀 使用方法
@@ -277,25 +281,44 @@ python main.py --url "https://www.youtube.com/watch?v=xxxxx" --type baby
 python main.py --help
 
 参数:
-  --config CONFIG   配置文件路径（默认：./config.yaml）
-  --videos VIDEOS   视频列表文件路径（默认：./videos.txt）
-  --url URL         处理单个视频URL
-  --type TYPE       视频类型：baby/tech/interview/documentary/general
+  --config CONFIG              配置文件路径（默认：./config.yaml）
+  --videos VIDEOS              视频列表文件路径（默认：./videos.txt）
+  --url URL                    处理单个视频URL
+  --type TYPE                  视频类型（对应 config.yaml 中 video_types 的 key，如 baby/tech/interview）
+  --embed-only VIDEO_ID        仅重新嵌入字幕，跳过下载/转录/翻译
+                               用途：ffmpeg参数调整后重新生成视频，不重新处理字幕
+  --reprocess-subtitle VIDEO_ID  重新处理字幕流程（VTT→SRT→翻译→合并→嵌入），跳过视频下载
+                               用途：修复字幕质量问题、更换翻译模型、调整翻译风格后重新翻译
+```
+
+### 分段处理示例
+
+```bash
+# 完整流程
+python main.py --url "https://www.youtube.com/watch?v=xxxxx" --type interview
+
+# 只重新翻译+合并+嵌入（视频已下载，修复字幕内容问题）
+python main.py --reprocess-subtitle VIDEO_ID
+
+# 只重新嵌入（字幕已就绪，修复视频编码/路径问题）
+python main.py --embed-only VIDEO_ID
 ```
 
 ### 输出结构
 
 ```
 output/
-└── VIDEO_ID/
-    ├── VIDEO_TITLE.bilingual.srt    # 双语字幕文件
-    └── VIDEO_TITLE.bilingual.mp4    # 嵌入字幕的视频（可选）
+└── <类型>/                      # 由 videos.txt 中标注的类型决定
+    └── VIDEO_ID/
+        ├── VIDEO_TITLE.bilingual.srt    # 双语字幕文件
+        └── VIDEO_TITLE.bilingual.mp4    # 嵌入字幕的视频（可选）
 
 cache/
 └── VIDEO_ID/
     ├── VIDEO_ID.mp4                 # 原始视频
-    ├── subtitle.en.srt              # 英文字幕
-    └── subtitle.zh.srt              # 中文字幕
+    ├── VIDEO_ID.en.vtt              # YouTube 原始字幕（VTT）
+    ├── subtitle.en.srt              # 转换后的英文字幕
+    └── subtitle.zh.srt              # 中文翻译字幕
 ```
 
 ## 🔧 技术方案
