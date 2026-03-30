@@ -1,0 +1,138 @@
+# YouTube双语字幕生成系统配置文件
+
+# 视频下载配置
+downloader:
+  # 下载延迟（秒），避免触发YouTube的SABR限制
+  download_delay: 300
+  # 最大重试次数
+  max_retries: 3
+  # 视频质量配置
+  # 选项1: 指定分辨率（推荐）- 会下载该分辨率或以下的最高质量，包括webm等格式
+  #   "1080p" - 最高1080p，通常1-3GB（高质量）
+  #   "720p"  - 最高720p，通常500MB-1.5GB
+  #   "480p"  - 最高480p，通常200-500MB
+  # 选项2: 使用yt-dlp格式选择器
+  #   "best" - 最佳质量（不限制格式），可能很大
+  #   "bestvideo+bestaudio/best" - 最佳视频+音频组合
+  # 注意: 不限制格式(mp4/webm)可获得更高质量，yt-dlp会自动合并为mp4
+  video_quality: "1080p"
+  # 是否下载原始字幕
+  download_original_subtitles: true
+  # 代理设置（可选，格式：http://proxy:port）
+  proxy: null
+  # 认证方式（二选一，cookies_from_browser 优先）
+  # 方式1：直接读取浏览器 cookies（推荐，无文件落盘风险）
+  #   支持: chrome / firefox / edge / safari / brave / chromium
+  cookies_from_browser: "firefox"
+  # 指定 Firefox profile 名或完整路径（必须填！否则读默认profile可能不是YouTube账号）
+  # 在 Firefox 地址栏输入 about:profiles 找到对应 profile 的 Root Directory
+  # 例：cookies_from_browser_profile: "abc123.YouTubeClean"
+  # 或填完整路径：cookies_from_browser_profile: "C:/Users/dli/AppData/Roaming/Mozilla/Firefox/Profiles/abc123.YouTubeClean"
+  cookies_from_browser_profile: "axhlto60.yt_youtube"
+  # 方式2：手动导出的 cookies 文件（备用）
+  cookies_file: null
+
+# Whisper转录配置
+transcriber:
+  # Whisper模型大小（tiny/base/small/medium/large/large-v2/large-v3）
+  model: "large-v3"
+  # 设备（cpu/cuda）
+  device: "cuda"
+  # 语言
+  language: "en"
+  # 任务类型（transcribe/translate）
+  task: "transcribe"
+  # 是否启用FP16（需要GPU，可显著加速）
+  fp16: true
+
+# LLM翻译配置
+translator:
+  # 默认提供商（ollama/openai/claude）
+  default_provider: "ollama"
+  
+  # Ollama配置
+  ollama:
+    host: "http://localhost:11434"
+    model: "llama3.1:8b"
+    temperature: 0.3
+  
+  # OpenAI配置
+  openai:
+    api_key: ""  # 从环境变量OPENAI_API_KEY读取
+    model: "gpt-4"
+    temperature: 0.3
+  
+  # Claude配置
+  claude:
+    api_key: ""  # 从环境变量ANTHROPIC_API_KEY读取
+    model: "claude-3-sonnet-20240229"
+    temperature: 0.3
+
+# 视频类型配置
+# ──────────────────────────────────────────────────────────────
+# 每个 key 对应 videos.txt 中 URL 后面标注的类型名，同时决定输出目录结构：
+#   output/<类型>/<video_id>/视频+字幕文件
+#
+# 新增分类只需在此处追加一个 key，无需修改任何代码。
+# translation_style 会直接传给 LLM，影响翻译风格。
+# ──────────────────────────────────────────────────────────────
+video_types:
+  baby:
+    translation_style: "使用简单、亲切、充满童趣的语言，适合婴幼儿和学龄前儿童。句子简短，词汇简单，语气温柔。"
+
+  tech:
+    translation_style: "使用准确、专业的技术术语，保持严谨性。专业名词保留英文或给出中文对照，确保技术内容的精确传达。"
+
+  interview:
+    translation_style: "使用轻松、口语化的表达，保持对话的自然流畅感，适合口语听力练习。"
+
+  documentary:
+    translation_style: "使用标准、流畅的书面语，准确传达纪录片的信息内容，保持叙述的专业性和可读性。"
+
+  general:
+    translation_style: "准确翻译，保持原意，语言自然流畅。"
+
+  # ── 在下方添加新分类 ──────────────────────────────────────────
+  # sports:
+  #   translation_style: "使用运动相关术语，语言简洁有力，适合体育解说风格。"
+  #
+  # cooking:
+  #   translation_style: "使用生活化语言，准确翻译食材和烹饪步骤，保持实用性。"
+  # ─────────────────────────────────────────────────────────────
+
+# 字幕合并配置
+subtitle_merger:
+  # 字幕格式（srt/vtt/ass）
+  output_format: "srt"
+  # 双语字幕排列方式（vertical/horizontal）
+  layout: "vertical"
+  # 时间轴对齐阈值（毫秒）
+  time_threshold: 500
+
+# 视频处理配置
+video_processor:
+  # 是否嵌入字幕
+  embed_subtitles: true
+  # 输出视频编码（h264/h265）
+  video_codec: "h264"
+  # 是否保留原始视频
+  keep_original: true
+  # 使用 GPU 硬件编码（NVENC），速度比 CPU 快 5-10x
+  # 需要 NVIDIA 显卡且 ffmpeg 包含 --enable-nvenc（当前 build 已支持）
+  # 如遇问题改为 false 回退到 libx264（纯 CPU）
+  use_gpu_encode: true
+
+# 缓存配置
+cache:
+  # 缓存目录
+  cache_dir: "./cache"
+  # 输出目录
+  output_dir: "./output"
+  # 缓存数据库文件
+  db_file: "./cache/processed_videos.json"
+
+# 日志配置
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "./logs/subtitle_generator.log"

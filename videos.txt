@@ -1,0 +1,13 @@
+# YouTube视频URL列表
+# 每行一个URL，支持注释（#开头）
+# 格式：URL [类型] [备注]
+
+# 示例：
+# https://www.youtube.com/watch?v=xxxxx baby 儿童学习视频
+# https://www.youtube.com/watch?v=yyyyy tech Python教程
+# https://www.youtube.com/watch?v=zzzzz interview 技术访谈
+
+# 在下方添加你的视频URL
+https://www.youtube.com/watch?v=JegZYWlaq8w baby 儿童学习视频
+https://www.youtube.com/watch?v=qoinGjj60Fo interview
+

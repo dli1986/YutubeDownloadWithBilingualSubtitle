@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# 环境变量
+.env
+
+# Cookie 文件（包含账号会话，绝不提交）
+*.txt.cookies
+*cookies*.txt
+youtube_cookies.txt
+
+# 缓存和输出
+cache/
+output/
+logs/
+
+# 临时文件
+*.tmp
+*.bak
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Whisper模型缓存
+~/.cache/whisper/
+
+# 视频和字幕文件（太大，不提交）
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.vtt
+*.srt
+*.ass
+
+# 数据库
+*.db
+*.sqlite
+*.json.lock
+
+# 日志
+*.log
