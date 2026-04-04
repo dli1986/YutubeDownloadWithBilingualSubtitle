@@ -50,6 +50,11 @@ translator:
   # 默认提供商（ollama/openai/claude）
   default_provider: "ollama"
   
+  # 批量翻译条数（建议5条）
+  # 滚动字幕（每条内容与相邻条重叠）时，过大的batch会导致LLM跳过重复项
+  # 5条是兼顾速度与翻译完整性的最佳平衡点
+  batch_size: 5
+
   # Ollama配置
   ollama:
     host: "http://localhost:11434"
@@ -92,10 +97,13 @@ video_types:
   general:
     translation_style: "准确翻译，保持原意，语言自然流畅。"
 
+  sports:
+    translation_style: "使用运动相关术语，语言简洁有力，适合体育解说风格。动词选词要有张力。"
+
+  photograph:
+    translation_style: "使用摄影专业术语（如光圈、快门、焦距、虚化、测光等），保留英文型号和品牌名称，语言简洁精准。"
+
   # ── 在下方添加新分类 ──────────────────────────────────────────
-  # sports:
-  #   translation_style: "使用运动相关术语，语言简洁有力，适合体育解说风格。"
-  #
   # cooking:
   #   translation_style: "使用生活化语言，准确翻译食材和烹饪步骤，保持实用性。"
   # ─────────────────────────────────────────────────────────────

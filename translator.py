@@ -71,14 +71,19 @@ class LLMTranslator:
     
     def get_translation_prompt(self, video_type: str, text: str) -> str:
         """
-        根据视频类型生成翻译提示（简化版）
+        根据视频类型生成翻译提示
         """
         type_config = self.video_types_config.get(video_type, {})
         style = type_config.get('translation_style', '准确翻译。')
         
-        # 简化prompt，减少生成时间
-        prompt = f"""字幕翻译（英译中）
-风格：{style}
+        prompt = f"""你是专业字幕翻译员，将英文字幕逐条翻译成中文。
+翻译风格：{style}
+
+规则：
+- 每一条必须给出对应编号的翻译，不能跳过任何一条
+- 相邻条目内容可能有重叠（滚动字幕），仍需全部独立翻译
+- 只输出"编号. 中文翻译"格式，不加任何解释
+- 纯音效标签如[Music]保留原样
 
 {text}
 
@@ -186,13 +191,14 @@ class LLMTranslator:
             logger.error(f"不支持的提供商: {provider}")
             return None
     
-    def translate_srt(self, input_srt: str, output_srt: str, video_type: str = "general", 
-                     batch_size: int = 10) -> bool:
+    def translate_srt(self, input_srt: str, output_srt: str, video_type: str = "general",
+                     batch_size: int = None) -> bool:
         """
         翻译SRT字幕文件
-        batch_size: 批量翻译的字幕数量，默认10条，减少API调用次数
-        可根据性能需求调整：5-20条均可
+        batch_size: 批量翻译的字幕数量，默认从config读取，回退到5
         """
+        if batch_size is None:
+            batch_size = self.config.get('batch_size', 5)
         try:
             subs = pysrt.open(input_srt, encoding='utf-8')
             translated_subs = pysrt.SubRipFile()
@@ -212,26 +218,55 @@ class LLMTranslator:
                 batch_texts = [sub.text for sub in batch]
                 combined_text = "\n".join([f"{j+1}. {text}" for j, text in enumerate(batch_texts)])
                 
-                # 翻译合并的文本
+                # 翻译合并的文本，不足时以半批重试
                 translated_combined = self.translate_text(combined_text, video_type)
-                
-                if not translated_combined:
-                    logger.warning(f"批次 {i//batch_size + 1} 翻译失败，使用原文")
-                    translated_texts = batch_texts
-                else:
-                    # 只提取带编号的行，忽略 LLM 回显的 prompt 头/风格说明等非翻译内容
-                    # 格式："1. 翻译文本" → {1: "翻译文本"}
+                batch_num = i // batch_size + 1
+
+                def _parse_numbered(raw: str) -> Dict:
+                    """从LLM输出中提取编号行，返回 {1-based index: text}"""
                     numbered = {}
-                    for line in translated_combined.split('\n'):
+                    for line in raw.split('\n'):
                         m = re.match(r'^(\d+)\.\s*(.*)', line.strip())
                         if m:
-                            num, text = int(m.group(1)), m.group(2).strip()
-                            # 清理 >> 符号
-                            text = re.sub(r'^\s*>>\s*', '', text)
-                            text = re.sub(r'\s*>>\s*', ' ', text)
-                            text = text.strip()
-                            if text:
-                                numbered[num] = text
+                            num, txt = int(m.group(1)), m.group(2).strip()
+                            txt = re.sub(r'^\s*>>\s*', '', txt)
+                            txt = re.sub(r'\s*>>\s*', ' ', txt)
+                            txt = txt.strip()
+                            if txt:
+                                numbered[num] = txt
+                    return numbered
+
+                if not translated_combined:
+                    logger.warning(f"批次 {batch_num} 翻译失败，使用原文")
+                    translated_texts = batch_texts
+                else:
+                    numbered = _parse_numbered(translated_combined)
+                    missing = [j + 1 for j in range(len(batch)) if j + 1 not in numbered]
+
+                    # 超过30%缺失时以半批重试
+                    if missing and len(missing) > len(batch) * 0.3:
+                        logger.warning(
+                            f"批次 {batch_num} 仅收到 {len(numbered)}/{len(batch)} 条翻译，"
+                            f"缺失 {missing}，以半批重试"
+                        )
+                        half = max(1, len(batch) // 2)
+                        for retry_start in range(0, len(batch), half):
+                            retry_slice = list(range(retry_start, min(retry_start + half, len(batch))))
+                            retry_texts = [batch_texts[k] for k in retry_slice]
+                            retry_combined = "\n".join(
+                                [f"{local_j+1}. {t}" for local_j, t in enumerate(retry_texts)]
+                            )
+                            retry_result = self.translate_text(retry_combined, video_type)
+                            if retry_result:
+                                retry_numbered = _parse_numbered(retry_result)
+                                for local_j, global_j in enumerate(retry_slice):
+                                    if global_j + 1 not in numbered and local_j + 1 in retry_numbered:
+                                        numbered[global_j + 1] = retry_numbered[local_j + 1]
+
+                    still_missing = [j + 1 for j in range(len(batch)) if j + 1 not in numbered]
+                    if still_missing:
+                        logger.warning(f"批次 {batch_num} 仍有 {len(still_missing)} 条未翻译，回退英文原文")
+
                     # 按批次位置映射；缺失的条目回退到英文原文
                     translated_texts = [
                         numbered.get(j + 1, batch_texts[j])
