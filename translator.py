@@ -263,16 +263,23 @@ class LLMTranslator:
                                     if global_j + 1 not in numbered and local_j + 1 in retry_numbered:
                                         numbered[global_j + 1] = retry_numbered[local_j + 1]
 
-                    still_missing = [j + 1 for j in range(len(batch)) if j + 1 not in numbered]
-                    if still_missing:
-                        logger.warning(f"批次 {batch_num} 仍有 {len(still_missing)} 条未翻译，回退英文原文")
-
-                    # 按批次位置映射；缺失的条目回退到英文原文
+                    # 按批次位置映射；缺失的条目暂时回退到英文原文
                     translated_texts = [
                         numbered.get(j + 1, batch_texts[j])
                         for j in range(len(batch))
                     ]
-                
+
+                # 逐条验证：结果与英文原文相同说明未翻译，单独重试一次
+                for j in range(len(batch)):
+                    if translated_texts[j] == batch_texts[j]:
+                        single_prompt = f"1. {batch_texts[j]}"
+                        single_result = self.translate_text(single_prompt, video_type)
+                        if single_result:
+                            single_numbered = _parse_numbered(single_result)
+                            if 1 in single_numbered:
+                                translated_texts[j] = single_numbered[1]
+                                logger.debug(f"单条重试成功: 批次{batch_num} 第{j+1}条")
+
                 # 创建翻译后的字幕项
                 for j, sub in enumerate(batch):
                     translated_sub = pysrt.SubRipItem(
