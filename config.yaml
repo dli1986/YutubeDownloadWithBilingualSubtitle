@@ -55,23 +55,37 @@ translator:
   # 5条是兼顾速度与翻译完整性的最佳平衡点
   batch_size: 5
 
+  # 工业级字幕分割配置（Caption Segmentation + Display Rules）
+  # 参考 Netflix 副标题制作规范：语义完整分句 + 展示规则验证
+  caption_segmentation:
+    enabled: true            # true = LLM语义分割（实验性）；false = 停顿+标点规则分句（推荐）
+    max_chars_per_line: 70    # 每行最大字符数（1080p宽屏约70，Netflix竖屏标准42）
+    max_lines: 1              # 单行输出，由libass在渲染时按视频宽度自动换行
+    max_cps: 20               # 最大阅读速率（字符/秒）
+    min_dur_ms: 833           # 最短显示时长（约20帧）
+    max_dur_ms: 7000          # 最长显示时长（ms）
+    batch_words: 150          # 每批送入LLM的词数（建议100-150，过大影响分割质量）
+
   # Ollama配置
   ollama:
     host: "http://localhost:11434"
     model: "llama3.1:8b"
-    temperature: 0.3
+    temperature: 0.3             # caption segmentation 用（低温保证结构化输出稳定）
+    translation_temperature: 0.6 # 翻译用（适度创意，中文更自然）
   
   # OpenAI配置
   openai:
     api_key: ""  # 从环境变量OPENAI_API_KEY读取
     model: "gpt-4"
     temperature: 0.3
+    translation_temperature: 0.6
   
   # Claude配置
   claude:
     api_key: ""  # 从环境变量ANTHROPIC_API_KEY读取
     model: "claude-3-sonnet-20240229"
     temperature: 0.3
+    translation_temperature: 0.6
 
 # 视频类型配置
 # ──────────────────────────────────────────────────────────────
@@ -129,6 +143,9 @@ video_processor:
   # 需要 NVIDIA 显卡且 ffmpeg 包含 --enable-nvenc（当前 build 已支持）
   # 如遇问题改为 false 回退到 libx264（纯 CPU）
   use_gpu_encode: true
+  # 硬字幕字体大小（ffmpeg force_style FontSize）
+  # 典型参考 720p:16  1080p:20  4K:28
+  subtitle_font_size: 16
 
 # 缓存配置
 cache:

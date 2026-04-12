@@ -96,9 +96,10 @@ class SubtitleGenerator:
             logger.info("="*50)
             
             en_srt_path = self._get_or_create_english_subtitle(
-                video_id, 
+                video_id,
                 video_path,
-                download_results.get('subtitles', {}).get('en')
+                download_results.get('subtitles', {}).get('en'),
+                video_type
             )
             
             if not en_srt_path:
@@ -235,20 +236,34 @@ class SubtitleGenerator:
         logger.info(f"  video_id: {video_id}  type: {video_type}")
         logger.info(f"{'='*50}")
 
-        # 步骤1：重新从 VTT 生成干净的英文 SRT
+        # 步骤1：重新从原始字幕生成干净的英文 SRT
+        json3_path = str(cache_dir / f"{video_id}.en.json3")
+        srv3_path = str(cache_dir / f"{video_id}.en.srv3")
         vtt_path = str(cache_dir / f"{video_id}.en.vtt")
         en_srt_path = str(cache_dir / "subtitle.en.srt")
 
-        if os.path.exists(vtt_path):
-            logger.info(f"重新转换 VTT -> SRT: {vtt_path}")
+        if os.path.exists(json3_path):
+            logger.info(f"json3 工业级分割流程: {json3_path}")
+            if not self._json3_to_segmented_srt(json3_path, en_srt_path, video_type):
+                logger.error("json3 -> SRT 转换失败")
+                return False
+            logger.info(f"  ✓ 英文 SRT: {en_srt_path}")
+        elif os.path.exists(srv3_path):
+            logger.info(f"重新转换 srv3 -> SRT: {srv3_path}")
+            if not self.transcriber.srv3_to_srt(srv3_path, en_srt_path):
+                logger.error("srv3 -> SRT 转换失败")
+                return False
+            logger.info(f"  ✓ 英文 SRT: {en_srt_path}")
+        elif os.path.exists(vtt_path):
+            logger.info(f"重新转换 VTT -> SRT（fallback）: {vtt_path}")
             if not self.transcriber.vtt_to_srt(vtt_path, en_srt_path):
                 logger.error("VTT -> SRT 转换失败")
                 return False
             logger.info(f"  ✓ 英文 SRT: {en_srt_path}")
         elif os.path.exists(en_srt_path):
-            logger.info(f"  未找到 VTT，使用现有 SRT: {en_srt_path}")
+            logger.info(f"  未找到原始字幕，使用现有 SRT: {en_srt_path}")
         else:
-            logger.error(f"未找到字幕源文件（VTT 或 SRT）: {cache_dir}")
+            logger.error(f"未找到字幕源文件（srv3/VTT/SRT）: {cache_dir}")
             return False
 
         # 步骤2：重新翻译
@@ -301,8 +316,82 @@ class SubtitleGenerator:
         logger.info(f"{'='*50}\n")
         return True
 
-    def _get_or_create_english_subtitle(self, video_id: str, video_path: str, 
-                                       downloaded_subtitle: str = None) -> str:
+    def _json3_to_segmented_srt(self, json3_path: str, en_srt_path: str,
+                                 video_type: str = 'general') -> bool:
+        """
+        json3 → SRT 入口。
+          - caption_segmentation.enabled=false（默认）：直接调用 json3_to_srt()（停顿+标点分句）
+          - caption_segmentation.enabled=true：LLM 语义分割 + 展示规则，失败时回退到分句算法
+        """
+        seg_cfg = self.config.get('translator', {}).get('caption_segmentation', {})
+
+        if not seg_cfg.get('enabled', False):
+            logger.info("  使用停顿+标点分句算法（caption_segmentation.enabled=false）")
+            return self.transcriber.json3_to_srt(json3_path, en_srt_path)
+
+        # ── Deterministic segmentation + LLM soft advisory ───────────────
+        # Hard segmentation decisions are made entirely by symbolic rules
+        # (SemanticBreakScorer + pause detection + punctuation).
+        # LLM is consulted only for ambiguous boundaries (score 0.30–0.65)
+        # and its vote is weighted at 0.25 — it can tip the balance but
+        # cannot override a hard block or a strong break.
+        max_chars = seg_cfg.get('max_chars_per_line', 70)
+        max_lines = seg_cfg.get('max_lines', 1)
+        max_cps   = seg_cfg.get('max_cps', 20)
+        min_dur   = seg_cfg.get('min_dur_ms', 833)
+        max_dur   = seg_cfg.get('max_dur_ms', 7000)
+
+        logger.info("  [1/4] 提取词级时间流...")
+        words = self.transcriber.json3_extract_words(json3_path)
+        if not words:
+            logger.warning("  词流提取失败，回退到直接转换")
+            return self.transcriber.json3_to_srt(json3_path, en_srt_path)
+
+        logger.info(f"  [2/4] 确定性断点评分（{len(words)} 词）...")
+        boundary_scores = self.transcriber.compute_boundary_scores(words)
+
+        # Collect ambiguous zone: [0.30, 0.65] — where LLM vote can change outcome
+        # (below 0.30 = deterministic "don't break"; above 0.65 = deterministic "break")
+        AMBIG_LO, AMBIG_HI = 0.30, 0.65
+        ambiguous = [
+            i for i, s in enumerate(boundary_scores)
+            if AMBIG_LO <= s <= AMBIG_HI
+        ]
+
+        llm_votes: dict = {}
+        if ambiguous:
+            logger.info(f"  [3/4] LLM 软建议（{len(ambiguous)} 个模糊断点 / {len(boundary_scores)} 总断点）...")
+            try:
+                llm_votes = self.translator.validate_breaks_llm(words, ambiguous)
+            except Exception as e:
+                logger.warning(f"  LLM 软建议失败（{e}），继续使用纯确定性分组")
+        else:
+            logger.info("  [3/4] 无模糊断点，跳过 LLM 咨询")
+
+        logger.info(f"  [4/4] 最终分组 + 展示规则 → SRT...")
+        groups = self.transcriber.build_groups_from_scores(
+            words, boundary_scores,
+            max_chars=max_chars, max_dur_ms=max_dur,
+            llm_votes=llm_votes,
+        )
+        if not groups:
+            logger.warning("  分组结果为空，回退到直接转换")
+            return self.transcriber.json3_to_srt(json3_path, en_srt_path)
+
+        ok = self.transcriber.words_to_srt(
+            words, groups, en_srt_path,
+            max_cps=max_cps, max_chars_per_line=max_chars,
+            max_lines=max_lines, min_dur_ms=min_dur, max_dur_ms=max_dur,
+        )
+        if not ok:
+            logger.warning("  展示规则处理失败，回退到直接转换")
+            return self.transcriber.json3_to_srt(json3_path, en_srt_path)
+
+        return True
+
+    def _get_or_create_english_subtitle(self, video_id: str, video_path: str,
+                                        downloaded_subtitle: str = None,
+                                        video_type: str = 'general') -> str:
         """
         获取或创建英文字幕
         策略：
@@ -320,8 +409,22 @@ class SubtitleGenerator:
                 logger.info(f"  字幕文件: {downloaded_subtitle} ({file_size} bytes)")
                 logger.info(f"  跳过Whisper转录，节省时间和GPU资源")
                 
-                if downloaded_subtitle.endswith('.vtt'):
-                    logger.info(f"  转换VTT -> SRT格式...")
+                if downloaded_subtitle.endswith('.json3'):
+                    logger.info(f"  json3 工业级分割流程（语义分割 + 展示规则）...")
+                    if self._json3_to_segmented_srt(downloaded_subtitle, en_srt_path, video_type):
+                        logger.info(f"  ✓ 转换成功: {en_srt_path}")
+                        return en_srt_path
+                    else:
+                        logger.warning(f"  json3转换失败，将使用Whisper转录")
+                elif downloaded_subtitle.endswith('.srv3'):
+                    logger.info(f"  转换srv3(XML) -> SRT格式（原始离散段落，无重叠）...")
+                    if self.transcriber.srv3_to_srt(downloaded_subtitle, en_srt_path):
+                        logger.info(f"  ✓ 转换成功: {en_srt_path}")
+                        return en_srt_path
+                    else:
+                        logger.warning(f"  srv3转换失败，将使用Whisper转录")
+                elif downloaded_subtitle.endswith('.vtt'):
+                    logger.info(f"  转换VTT -> SRT格式（含滚动窗口去重）...")
                     if self.transcriber.vtt_to_srt(downloaded_subtitle, en_srt_path):
                         logger.info(f"  ✓ 转换成功: {en_srt_path}")
                         return en_srt_path

@@ -23,6 +23,7 @@ class VideoProcessor:
         self.embed_subtitles = self.config.get('embed_subtitles', True)
         self.video_codec = self.config.get('video_codec', 'h264')
         self.keep_original = self.config.get('keep_original', True)
+        self.subtitle_font_size = self.config.get('subtitle_font_size', 16)
     
     def check_ffmpeg(self) -> bool:
         """检查ffmpeg是否可用"""
@@ -84,7 +85,7 @@ class VideoProcessor:
             cmd = [
                 'ffmpeg',
                 '-i', video_abs,
-                '-vf', f"subtitles='{subtitle_filename}':force_style='FontSize=20,PrimaryColour=&Hffffff'",
+                '-vf', f"subtitles='{subtitle_filename}':force_style='FontSize={self.subtitle_font_size},PrimaryColour=&Hffffff,MarginV=10,Alignment=2'",
                 *encode_args,
                 '-c:a', 'aac',   # 转码为 AAC，安全兼容主流播放器（原始 Opus Windows 默认播放器不支持）
                 '-b:a', '192k',  # 音频码率

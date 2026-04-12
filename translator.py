@@ -76,18 +76,19 @@ class LLMTranslator:
         type_config = self.video_types_config.get(video_type, {})
         style = type_config.get('translation_style', '准确翻译。')
         
-        prompt = f"""你是专业字幕翻译员，将英文字幕逐条翻译成中文。
-翻译风格：{style}
+        prompt = f"""You are a professional subtitle translator. Translate each numbered English subtitle into Chinese.
+Translation style: {style}
 
-规则：
-- 每一条必须给出对应编号的翻译，不能跳过任何一条
-- 相邻条目内容可能有重叠（滚动字幕），仍需全部独立翻译
-- 只输出"编号. 中文翻译"格式，不加任何解释
-- 纯音效标签如[Music]保留原样
+CRITICAL RULES — follow exactly:
+1. Output EXACTLY one translated line per input line, numbered to match.
+2. Each subtitle is an independent CC block. Even if the English ends mid-sentence (e.g. ends with "the", "a", "in", "to"), translate it AS-IS — do NOT merge it with the next entry.
+3. Input has N lines → output must have exactly N lines, same numbering.
+4. Output format: "N. Chinese translation" only — no explanations, no extra lines.
+5. Keep sound-effect tags like [Music] or [applause] unchanged.
 
 {text}
 
-翻译："""
+Translation:"""
         
         return prompt
     
@@ -99,7 +100,8 @@ class LLMTranslator:
         
         try:
             model = self.config.get('ollama', {}).get('model', 'qwen2.5:7b')
-            temperature = self.config.get('ollama', {}).get('temperature', 0.3)
+            temperature = self.config.get('ollama', {}).get('translation_temperature',
+                         self.config.get('ollama', {}).get('temperature', 0.6))
             
             prompt = self.get_translation_prompt(video_type, text)
             
@@ -132,7 +134,8 @@ class LLMTranslator:
         
         try:
             model = self.config.get('openai', {}).get('model', 'gpt-4')
-            temperature = self.config.get('openai', {}).get('temperature', 0.3)
+            temperature = self.config.get('openai', {}).get('translation_temperature',
+                         self.config.get('openai', {}).get('temperature', 0.6))
             
             prompt = self.get_translation_prompt(video_type, text)
             
@@ -157,7 +160,8 @@ class LLMTranslator:
         
         try:
             model = self.config.get('claude', {}).get('model', 'claude-3-sonnet-20240229')
-            temperature = self.config.get('claude', {}).get('temperature', 0.3)
+            temperature = self.config.get('claude', {}).get('translation_temperature',
+                         self.config.get('claude', {}).get('temperature', 0.6))
             
             prompt = self.get_translation_prompt(video_type, text)
             
@@ -302,3 +306,254 @@ class LLMTranslator:
         except Exception as e:
             logger.error(f"SRT翻译失败: {e}")
             return False
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # 工业级字幕分割（Caption Segmentation）
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _call_llm_raw(self, prompt: str) -> Optional[str]:
+        """
+        直接调用当前 LLM 提供商，不包装翻译前缀。
+        用于字幕分割等非翻译任务。
+        """
+        provider = self.provider
+        try:
+            if provider == 'ollama' and 'ollama' in self.clients:
+                model = self.config.get('ollama', {}).get('model', 'qwen3:8b')
+                temp  = self.config.get('ollama', {}).get('temperature', 0.3)
+                resp  = self.clients['ollama'].generate(
+                    model=model, prompt=prompt,
+                    options={'temperature': temp, 'num_predict': 1200}
+                )
+                return resp['response'].strip()
+
+            elif provider == 'openai' and 'openai' in self.clients:
+                model = self.config.get('openai', {}).get('model', 'gpt-4')
+                temp  = self.config.get('openai', {}).get('temperature', 0.3)
+                resp  = self.clients['openai'].chat.completions.create(
+                    model=model, temperature=temp,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return resp.choices[0].message.content.strip()
+
+            elif provider == 'claude' and 'claude' in self.clients:
+                model = self.config.get('claude', {}).get('model', 'claude-3-sonnet-20240229')
+                temp  = self.config.get('claude', {}).get('temperature', 0.3)
+                resp  = self.clients['claude'].messages.create(
+                    model=model, max_tokens=600, temperature=temp,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                return resp.content[0].text.strip()
+        except Exception as e:
+            logger.error(f"_call_llm_raw 失败: {e}")
+        return None
+
+    def _fallback_groups(self, words: list, max_chars: int = 70) -> list:
+        """
+        停顿+标点分句（LLM 失败时的 fallback），与 json3_to_srt 逻辑一致。
+        返回 [[word_idx, ...], ...]（0-based）。
+        """
+        LONG_PAUSE_MS = 1500
+        PUNCT_GAP_MS  = 300
+        MAX_DUR_MS    = 8_000
+
+        groups: list = []
+        seg: list = []   # [(local_idx, word_dict), ...]
+
+        def flush():
+            if seg:
+                groups.append([i for i, _ in seg])
+                seg.clear()
+
+        for i, w in enumerate(words):
+            if seg:
+                prev_ms   = seg[-1][1]['abs_ms']
+                gap       = w['abs_ms'] - prev_ms
+                dur       = w['abs_ms'] - seg[0][1]['abs_ms']
+                tmp       = ''.join(d['word'] for _, d in seg)
+                prev_word = seg[-1][1]['word'].rstrip()
+                ends_sent = bool(prev_word) and prev_word[-1] in '.!?'
+                if (
+                    (ends_sent and gap > PUNCT_GAP_MS)
+                    or gap > LONG_PAUSE_MS
+                    or len(tmp) + len(w['word']) > max_chars
+                    or dur > MAX_DUR_MS
+                ):
+                    flush()
+            seg.append((i, w))
+
+        flush()
+        return groups
+
+    def segment_captions(self, words: list, video_type: str = 'general') -> list:
+        """
+        LLM 语义分割（Caption Segmentation）。
+
+        将词级时间流按语义与展示规则分割为字幕单元：
+          1. 将词流分批（batch_words 词/批）发送给 LLM
+          2. LLM 返回每个字幕单元的首词编号（1-based 全局编号）
+          3. 解析编号 → 转换为 0-based 词索引分组
+          4. 任意批次失败时自动 fallback 到字符数简单分组
+
+        返回 [[word_idx, ...], ...]（0-based）
+        """
+        seg_cfg   = self.config.get('caption_segmentation', {})
+        max_chars = seg_cfg.get('max_chars_per_line', 70)
+        batch_sz  = seg_cfg.get('batch_words', 150)
+
+        # 每个字幕单元约含多少词（用于 prompt 提示）
+        avg_word_len = 5  # 英文词平均字符数
+        approx_words_per_unit = max(4, max_chars // (avg_word_len + 1))
+
+        all_starts: list[int] = []  # 1-based 全局起始词编号
+
+        for batch_start in range(0, len(words), batch_sz):
+            batch = words[batch_start:batch_start + batch_sz]
+
+            # 展示时去除前导空格，避免 LLM 困惑
+            word_list_str = '\n'.join(
+                f"{batch_start + i + 1}: {w['word'].strip()}"
+                for i, w in enumerate(batch)
+            )
+            first_num = batch_start + 1
+            ex_a, ex_b = first_num, first_num + approx_words_per_unit
+
+            prompt = (
+                f"You are a professional subtitle segmenter. "
+                f"Given the numbered word list below (from a spoken video), "
+                f"output the START word number of each subtitle unit.\n\n"
+                f"Rules:\n"
+                f"1. Each unit must be semantically complete "
+                f"(do NOT break inside a noun phrase, verb phrase, or prepositional phrase)\n"
+                f"2. Each unit should be roughly {approx_words_per_unit} words "
+                f"(max {max_chars} characters when joined)\n"
+                f"3. Preferred break points: after sentence-ending punctuation (.!?), "
+                f"before conjunctions (and/but/or/so), before a new clause\n"
+                f"4. The first unit MUST start at word number {first_num}\n\n"
+                f"Words:\n{word_list_str}\n\n"
+                f"Output ONLY a comma-separated list of start word numbers. "
+                f"Example: {ex_a}, {ex_b}, ...\n"
+                f"Output:"
+            )
+
+            raw    = self._call_llm_raw(prompt)
+            parsed = []
+            if raw:
+                parsed = [
+                    int(m) for m in re.findall(r'\b\d+\b', raw)
+                    if batch_start + 1 <= int(m) <= batch_start + len(batch)
+                ]
+
+            if len(parsed) >= 2:
+                # 校验 LLM 输出合理性：平均 group 字符数应在 [10, max_chars*1.5] 范围内
+                avg_group_size = len(batch) / len(parsed)
+                avg_chars = avg_group_size * 5  # 平均词长约 5 字符
+                if avg_chars < 8 or avg_chars > max_chars * 1.8:
+                    logger.warning(
+                        f"  批次 {batch_start+1}-{batch_start+len(batch)} LLM 输出异常"
+                        f"（avg {avg_chars:.0f} chars/unit），使用 fallback"
+                    )
+                    fb = self._fallback_groups(
+                        words[batch_start:batch_start + len(batch)], max_chars
+                    )
+                    for g in fb:
+                        all_starts.append(batch_start + g[0] + 1)
+                else:
+                    if parsed[0] != batch_start + 1:
+                        parsed.insert(0, batch_start + 1)
+                    all_starts.extend(parsed)
+                    logger.info(
+                        f"  分割批次 {batch_start+1}-{batch_start+len(batch)}: "
+                        f"{len(parsed)} 个字幕单元"
+                    )
+            else:
+                logger.warning(
+                    f"  批次 {batch_start+1}-{batch_start+len(batch)} 分割失败，"
+                    f"使用简单分组"
+                )
+                fb = self._fallback_groups(
+                    words[batch_start:batch_start + len(batch)], max_chars
+                )
+                for g in fb:
+                    all_starts.append(batch_start + g[0] + 1)
+
+        if not all_starts:
+            logger.warning("字幕分割全部失败，使用简单分组")
+            return self._fallback_groups(words, max_chars)
+
+        # 1-based 全局起始 → 0-based 词索引分组
+        starts = sorted(set(all_starts))
+        groups = []
+        for i, s1 in enumerate(starts):
+            s0 = s1 - 1
+            e0 = (starts[i + 1] - 1) if i + 1 < len(starts) else len(words)
+            groups.append(list(range(s0, e0)))
+
+        logger.info(f"字幕分割完成：{len(words)} 词 → {len(groups)} 条字幕单元")
+        return groups
+
+    def validate_breaks_llm(self, words: list, candidates: list) -> dict:
+        """
+        LLM soft advisor for subtitle break points.
+
+        For each candidate boundary index (word_idx after which to break),
+        asks the LLM whether it is semantically OK to start a new subtitle there.
+        Returns {word_idx: bool}  True = LLM suggests breaking, False = keep together.
+
+        This is ADVISORY ONLY — the caller applies votes with weight ≤ 0.25.
+        Hard blocks (deterministic score == 0.0) are never sent here.
+        Called only for ambiguous boundaries (score ∈ [0.30, 0.65]).
+
+        Batched in groups of 20 to keep prompts short.
+        """
+        if not candidates or not words:
+            return {}
+
+        WINDOW = 6   # words of context each side of boundary
+        BATCH  = 20
+
+        def _join_w(ws):
+            text = ''
+            for w in ws:
+                wt = w['word']
+                if text and not text[-1].isspace() and not wt[0].isspace():
+                    text += ' '
+                text += wt
+            return re.sub(r'\s+', ' ', text).strip()
+
+        all_votes: dict = {}
+
+        for batch_start in range(0, len(candidates), BATCH):
+            batch = candidates[batch_start:batch_start + BATCH]
+            items = []
+            for n, idx in enumerate(batch, 1):
+                lo  = max(0, idx - WINDOW + 1)
+                hi  = min(len(words), idx + 1 + WINDOW)
+                lft = _join_w(words[lo:idx + 1])
+                rgt = _join_w(words[idx + 1:hi])
+                items.append(f"{n}. «{lft}» | «{rgt}»")
+
+            numbered = '\n'.join(items)
+            prompt = (
+                "You are reviewing subtitle segmentation for a spoken video.\n"
+                "For each numbered break point, «left» is what ends one subtitle "
+                "and «right» is what would start the next.\n"
+                "Answer Y if it is a GOOD break (right starts a new complete thought) "
+                "or N if it is a BAD break (would split a phrase mid-thought).\n\n"
+                f"{numbered}\n\n"
+                "Reply with ONLY one line per item — number, colon, Y or N. "
+                "No explanations.\nExample:\n1: Y\n2: N\n3: Y"
+            )
+
+            raw = self._call_llm_raw(prompt)
+            if raw:
+                for m in re.finditer(r'(\d+)\s*[:.)]\s*([YyNn])', raw):
+                    n = int(m.group(1)) - 1
+                    if 0 <= n < len(batch):
+                        all_votes[batch[n]] = m.group(2).upper() == 'Y'
+
+        logger.info(
+            f"validate_breaks_llm: {len(candidates)} 候选 → "
+            f"{sum(all_votes.values())} Y / {sum(not v for v in all_votes.values())} N"
+        )
+        return all_votes

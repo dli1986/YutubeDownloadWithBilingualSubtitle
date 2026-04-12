@@ -36,12 +36,20 @@ class SubtitleMerger:
             logger.info(f"中文字幕: {len(subs_zh)} 条")
             
             merged = self._merge_subtitles(subs_en, subs_zh)
-            
+
+            # 防御性终止时间钳位：确保相邻双语条目不重叠
+            # （重叠会导致 libass 同时渲染多条，堆叠行数将字幕整个块推高）
+            for i in range(len(merged) - 1):
+                curr = merged[i]
+                nxt  = merged[i + 1]
+                if curr.end.ordinal > nxt.start.ordinal:
+                    curr.end.ordinal = nxt.start.ordinal
+
             # 保存合并后的字幕
             merged.save(out_path, encoding='utf-8')
             logger.info(f"双语字幕合并完成: {out_path}, 共 {len(merged)} 条")
             return True
-            
+
         except Exception as e:
             logger.error(f"字幕合并失败: {e}")
             return False

@@ -199,7 +199,8 @@ class VideoDownloader:
                 'writesubtitles': True,
                 'writeautomaticsub': True,
                 'subtitleslangs': [lang],
-                'subtitlesformat': 'vtt',
+                # json3 提供逐字时间戳，可重建无重叠句子段；srv3/vtt 作为降级备选
+                'subtitlesformat': 'json3/srv3/vtt',
                 'outtmpl': os.path.join(output_dir, '%(id)s.%(ext)s'),
                 'quiet': False,
                 # mweb: 无需 PO Token，无 SABR；web 作为 fallback
@@ -225,8 +226,11 @@ class VideoDownloader:
                         available_subs = info.get('subtitles', {})
                         auto_subs = info.get('automatic_captions', {})
                         
-                        # 查找生成的字幕文件（可能是手动字幕或自动字幕）
-                        subtitle_file = os.path.join(output_dir, f"{video_id}.{lang}.vtt")
+                        # 查找生成的字幕文件（srv3 格式）
+                        subtitle_file = os.path.join(output_dir, f"{video_id}.{lang}.srv3")
+                        # 兼容回退：若 srv3 不可用时 yt-dlp 可能退回 vtt
+                        if not os.path.exists(subtitle_file):
+                            subtitle_file = os.path.join(output_dir, f"{video_id}.{lang}.vtt")
                         
                         if os.path.exists(subtitle_file):
                             # 判断是手动字幕还是自动字幕
@@ -299,7 +303,8 @@ class VideoDownloader:
             'writesubtitles': download_subs,
             'writeautomaticsub': download_subs,
             'subtitleslangs': ['en'],
-            'subtitlesformat': 'vtt',
+            # json3 提供逐字时间戳，可重建无重叠句子段；srv3/vtt 作为降级备选
+            'subtitlesformat': 'json3/srv3/vtt',
             # mweb: 无需 PO Token，无 SABR，支持 1080p；web 作为 fallback
             'extractor_args': {
                 'youtube': {
@@ -356,15 +361,20 @@ class VideoDownloader:
                 else:
                     raise Exception("视频文件不存在或为空")
 
-                # 检查字幕文件
+                # 检查字幕文件（优先 json3，fallback srv3/vtt）
                 if download_subs:
-                    subtitle_file = os.path.join(output_dir, f"{actual_id}.en.vtt")
+                    subtitle_file = os.path.join(output_dir, f"{actual_id}.en.json3")
+                    if not os.path.exists(subtitle_file):
+                        subtitle_file = os.path.join(output_dir, f"{actual_id}.en.srv3")
+                    if not os.path.exists(subtitle_file):
+                        subtitle_file = os.path.join(output_dir, f"{actual_id}.en.vtt")
                     if os.path.exists(subtitle_file):
                         available_subs = dl_info.get('subtitles', {})
                         is_manual = 'en' in available_subs
                         sub_type = "人工字幕" if is_manual else "自动字幕(CC)"
+                        ext = os.path.splitext(subtitle_file)[1]
                         results['subtitles']['en'] = subtitle_file
-                        logger.info(f"✓ en {sub_type}下载成功: {subtitle_file}")
+                        logger.info(f"✓ en {sub_type}下载成功 ({ext}): {subtitle_file}")
                     else:
                         logger.warning("✗ 未找到英文字幕（视频无字幕或字幕未生成）")
                         results['subtitles']['en'] = None
