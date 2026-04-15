@@ -74,22 +74,47 @@ class SubtitleGenerator:
             # 1. 本地解析 video_id（无需额外网络请求）
             video_id = self.cache_manager.get_video_id(url)
             logger.info(f"视频ID: {video_id}")
-            
+
             # 2. 单次请求：下载视频+字幕，同时获取元数据
             logger.info("开始下载视频和字幕...")
             download_results = self.downloader.download_all(url, video_id)
-            
+
             if not download_results['video']:
                 raise Exception("视频下载失败")
-            
+
             # 从下载结果提取元数据（download_all 已内置 info 获取）
             video_info = download_results.get('info') or {}
             video_title = sanitize_filename(video_info.get('title') or video_id)
 
             logger.info(f"视频标题: {video_title}")
-            
+
             video_path = download_results['video']
-            
+
+            # ── 中文源视频快速路径 ──────────────────────────────────────────
+            # type=zh：仅下载 + 复制到输出目录，跳过 Whisper / LLM / 字幕合并
+            if video_type == 'zh':
+                output_video_path = get_output_path(
+                    video_id,
+                    f"{video_title}.mp4",
+                    self.config['cache']['output_dir'],
+                    video_type
+                )
+                os.makedirs(os.path.dirname(output_video_path), exist_ok=True)
+                if not self.video_processor.remux_to_aac(video_path, output_video_path):
+                    raise Exception("中文源视频音频转码（Opus→AAC）失败")
+                self.cache_manager.mark_processed(url, {
+                    'video_id': video_id,
+                    'title': video_title,
+                    'type': video_type,
+                    'output_video': output_video_path,
+                })
+                logger.info(f"\n{'='*50}")
+                logger.info(f"中文源视频处理完成（仅下载）: {video_title}")
+                logger.info(f"输出: {output_video_path}")
+                logger.info(f"{'='*50}\n")
+                return True
+            # ───────────────────────────────────────────────────────────────
+
             # 3. 处理英文字幕（优先使用原始字幕，否则Whisper转录）
             logger.info("\n" + "="*50)
             logger.info("步骤3: 获取英文字幕")

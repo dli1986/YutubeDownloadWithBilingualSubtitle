@@ -243,6 +243,36 @@ class VideoProcessor:
             logger.error(f"附加字幕时出错: {e}")
             return False
     
+    def remux_to_aac(self, input_path: str, output_path: str) -> bool:
+        """
+        视频流原样拷贝，仅将音频转码为 AAC（兼容 Windows 播放器）。
+        用于中文源视频直通路径：跳过字幕嵌入，但修复 Opus 音频不受支持的问题。
+        """
+        if not self.check_ffmpeg():
+            return False
+        try:
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-c:v', 'copy',
+                '-c:a', 'aac',
+                '-b:a', '192k',
+                '-y',
+                output_path,
+            ]
+            logger.info(f"开始音频转码（Opus→AAC）: {input_path}")
+            result = subprocess.run(cmd, capture_output=True, text=True,
+                                    encoding='utf-8', errors='replace')
+            if result.returncode == 0:
+                logger.info(f"音频转码成功: {output_path}")
+                return True
+            else:
+                logger.error(f"音频转码失败: {result.stderr[-800:]}")
+                return False
+        except Exception as e:
+            logger.error(f"音频转码时出错: {e}")
+            return False
+
     def remux_video(self, input_path: str, output_path: str) -> bool:
         """
         重新封装视频（不重新编码）
