@@ -16,6 +16,7 @@ from transcriber import WhisperTranscriber
 from translator import LLMTranslator
 from subtitle_merger import SubtitleMerger
 from video_processor import VideoProcessor
+from channel_scanner import scan_channels
 
 
 logger = logging.getLogger(__name__)
@@ -495,17 +496,27 @@ class SubtitleGenerator:
         
         return None
     
-    def process_all(self, videos_file: str = "./videos.txt"):
+    def process_all(self, videos_file: str = "./videos.txt",
+                    channels_file: str = "./channels.yaml"):
         """
-        处理视频列表中的所有视频
+        处理视频列表中的所有视频。
+        启动时先扫描 channels.yaml 中的订阅频道，将新视频追加到队列头部。
         """
+        # ── [0] 频道扫描：发现新视频并前置入队 ───────────────────────────
+        logger.info("\n" + "="*50)
+        logger.info("扫描订阅频道（channels.yaml）...")
+        channel_entries = scan_channels(self.config, channels_file)
+        # ────────────────────────────────────────────────────────────
+
         video_list = load_video_urls(videos_file)
         
-        if not video_list:
+        if not video_list and not channel_entries:
             logger.warning(f"未找到视频列表或列表为空: {videos_file}")
             return
-        
-        logger.info(f"共找到 {len(video_list)} 个视频待处理")
+
+        # 频道扫描到的新视频放在队列头部（优先处理新内容）
+        combined = channel_entries + video_list
+        logger.info(f"共找到 {len(combined)} 个视频待处理（频道新增 {len(channel_entries)} + videos.txt {len(video_list)}）")
         
         # 显示缓存统计
         stats = self.cache_manager.get_statistics()
@@ -516,8 +527,8 @@ class SubtitleGenerator:
         skip_count = 0
         fail_count = 0
         
-        for i, video_entry in enumerate(video_list, 1):
-            logger.info(f"\n进度: {i}/{len(video_list)}")
+        for i, video_entry in enumerate(combined, 1):
+            logger.info(f"\n进度: {i}/{len(combined)}")
             
             # 检查是否已处理
             if self.cache_manager.is_processed(video_entry['url']):
@@ -536,7 +547,7 @@ class SubtitleGenerator:
         logger.info(f"  成功: {success_count}")
         logger.info(f"  跳过: {skip_count}")
         logger.info(f"  失败: {fail_count}")
-        logger.info(f"  总计: {len(video_list)}")
+        logger.info(f"  总计: {len(combined)}")
         logger.info(f"{'='*50}\n")
 
 
@@ -547,6 +558,7 @@ def main():
     
     parser = argparse.ArgumentParser(description='YouTube双语字幕生成系统')
     parser.add_argument('--config', default='./config.yaml', help='配置文件路径')
+    parser.add_argument('--channels', default='./channels.yaml', help='频道订阅列表文件路径')
     parser.add_argument('--videos', default='./videos.txt', help='视频列表文件路径')
     parser.add_argument('--url', help='处理单个视频URL')
     parser.add_argument('--type', default='general',
@@ -575,7 +587,7 @@ def main():
             generator.process_video(video_entry)
         else:
             # 处理视频列表
-            generator.process_all(args.videos)
+            generator.process_all(args.videos, args.channels)
             
     except KeyboardInterrupt:
         logger.info("\n用户中断，程序退出")

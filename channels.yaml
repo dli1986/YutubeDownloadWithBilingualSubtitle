@@ -1,0 +1,53 @@
+# YouTube 频道订阅列表
+# 程序启动时自动扫描，发现符合条件的新视频并加入处理队列
+#
+# 字段说明：
+#   id               频道 ID（UC 开头）或 @handle（如 @3blue1brown）
+#   type             视频类型，对应 config.yaml 中 video_types 的键
+#   min_duration_mins 最短时长（分钟），默认 20，用于过滤短视频/预告片
+#   archive_file     （可选）增量存档文件路径，默认 ./cache/channel_<id>.archive
+#
+# 每次程序启动时，yt-dlp 只拉取该频道最新 200 条视频的元数据（不下载）
+# 通过 archive 文件跳过已处理的视频，实现增量更新
+#
+# 示例：
+# channels:
+#   - id: "UCxxxxxxxxxxxxxx"
+#     type: "tech"
+#     min_duration_mins: 20
+#
+#   - id: "@3blue1brown"
+#     type: "documentary"
+#     min_duration_mins: 15
+channels: 
+    - id: "UCawZsQWqfGSbCI5yjkdVkTA"  # Matthew Berman
+      type: "tech"
+      min_duration_mins: 15
+    - id: "UClQy9Goi6U9Xv5ZpurzHkcw"  # Hung-yi Lee
+      type: "zh"
+      min_duration_mins: 30
+    - id: "UCxG6Tbopv4XcHfem65bgFeg"  # SuperSimpleSongs
+      type: "baby" 
+      min_duration_mins: 30
+    - id: "UCNR06PEAvBj_siYZCBtk1hw"  # SuperSimplePlay with Caitie
+      type: "baby" 
+      min_duration_mins: 30
+    - id: "UCk4mxleDfaMqdm5kHISD3qA"  # PyDataTV
+      type: "tech"  
+      min_duration_mins: 30
+    - id: "UCKelCK4ZaO6HeEI1KQjqzWA"  # The AI Daily Brief: Artificial Intelligence News
+      type: "tech"
+      min_duration_mins: 15
+    - id: "UCG2CL6EUjG8TVT1Tpl9nJdg"  # Ms Rachel - Toddler Learning Videos
+      type: "baby"
+      min_duration_mins: 30
+    - id: "UChpleBmo18P08aKCIgti38g"  # Matt Wolfe
+      type: "tech" 
+      min_duration_mins: 30
+    - id: "UC6t1O76G0jYXOAoYCm153dA"  # Lenny's Podcast
+      type: "interview"
+      min_duration_mins: 30
+    - id: "UCZa18YV7qayTh-MRIrBhDpA"  # Dwarkesh Patel
+      type: "interview"
+      min_duration_mins: 30
+    

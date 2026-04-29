@@ -283,6 +283,55 @@ video_types:
 
 ## 🚀 使用方法
 
+### 方式0：频道订阅（自动追踪新视频）
+
+编辑 `channels.yaml`，填入要订阅的 YouTube 频道：
+
+```yaml
+channels:
+  - id: "UCxxxxxxxxxxxxxx"      # UC 开头的 channel ID
+    type: "tech"
+    min_duration_mins: 20       # 过滤短视频/预告片
+
+  - id: "@3blue1brown"          # 或 @handle 格式
+    type: "documentary"
+    min_duration_mins: 15
+
+  - id: "UCyyyyyyyyyyyyyy"
+    type: "zh"                  # 中文源频道走快速路径
+    min_duration_mins: 20
+```
+
+每次运行 `python main.py` 时，程序会先自动扫描这些频道，把新视频加入处理队列。
+
+#### 增量策略说明
+
+```
+首次订阅某频道（cache/ 下无对应 .archive 文件）
+  → yt-dlp 拉取该频道全部历史视频 ID，写入 archive，但 不入队处理
+  → 效果：以"今天"为追踪起点，不会处理堆积的历史内容
+
+后续每次运行
+  → yt-dlp 读取 archive，跳过已有 ID，只返回新发布的视频
+  → 新视频 ID 立即写回 archive（防止下次重复入队，即使本次处理失败）
+  → 新视频加入处理队列，走完整下载→转录→翻译→嵌入流程
+```
+
+> **为什么扫 200 条？**
+> yt-dlp 只拉取元数据（不下载视频），速度极快（通常 < 3 秒/频道）。
+> 正常频道每周发布 1-5 条，200 条足以覆盖数月积累，同时避免翻遍全部历史。
+> 因为有 archive 过滤，实际返回的新视频条数通常是 0-5 条。
+
+#### 文件说明
+
+| 文件 | 用途 |
+|------|------|
+| `channels.yaml` | 频道订阅列表（人工维护） |
+| `cache/channel_<id>.archive` | 每个频道独立的已处理 ID 档案 |
+| `videos.txt` | 一次性手动补充（仍完全有效） |
+
+`videos.txt` 与 `channels.yaml` 并存：频道订阅负责自动追踪，`videos.txt` 用于手动添加单条视频（如特定历史内容）。
+
 ### 方式1：批量处理（推荐）
 
 1. 编辑 `videos.txt` 添加视频URL：
