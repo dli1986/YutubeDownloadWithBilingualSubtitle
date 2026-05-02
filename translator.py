@@ -41,9 +41,7 @@ class LLMTranslator:
                 self.clients['ollama'].list()
                 logger.info(f"✓ Ollama客户端初始化成功 ({host})")
             except Exception as test_err:
-                logger.error(f"Ollama服务连接失败 ({host}): {test_err}")
-                logger.error("请确保Ollama服务正在运行：ollama serve")
-                del self.clients['ollama']
+                logger.warning(f"Ollama服务暂时不可用 ({host}): {test_err}，将在首次调用时重试")
         except ImportError:
             logger.warning("Ollama包未安装，请运行: pip install ollama")
         except Exception as e:
@@ -92,10 +90,26 @@ Translation:"""
         
         return prompt
     
+    def _ensure_ollama_client(self) -> bool:
+        """确保Ollama客户端可用，必要时重试连接"""
+        if 'ollama' in self.clients:
+            return True
+        try:
+            import ollama
+            host = self.config.get('ollama', {}).get('host', 'http://localhost:11434')
+            client = ollama.Client(host=host)
+            client.list()  # 验证连接
+            self.clients['ollama'] = client
+            logger.info(f"✓ Ollama客户端重连成功 ({host})")
+            return True
+        except Exception as e:
+            logger.error(f"Ollama客户端重连失败: {e}")
+            return False
+
     def translate_with_ollama(self, text: str, video_type: str) -> Optional[str]:
         """使用Ollama翻译"""
-        if 'ollama' not in self.clients:
-            logger.error("Ollama客户端未初始化")
+        if not self._ensure_ollama_client():
+            logger.error("Ollama客户端未初始化，请确认 ollama serve 正在运行")
             return None
         
         try:
@@ -318,7 +332,7 @@ Translation:"""
         """
         provider = self.provider
         try:
-            if provider == 'ollama' and 'ollama' in self.clients:
+            if provider == 'ollama' and self._ensure_ollama_client():
                 model = self.config.get('ollama', {}).get('model', 'qwen3:8b')
                 temp  = self.config.get('ollama', {}).get('temperature', 0.3)
                 resp  = self.clients['ollama'].generate(

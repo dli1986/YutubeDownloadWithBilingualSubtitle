@@ -20,34 +20,34 @@
 #     type: "documentary"
 #     min_duration_mins: 15
 channels: 
-    - id: "UCawZsQWqfGSbCI5yjkdVkTA"  # Matthew Berman
+    - id: "@matthew_berman"  # Matthew Berman
       type: "tech"
       min_duration_mins: 15
-    - id: "UClQy9Goi6U9Xv5ZpurzHkcw"  # Hung-yi Lee
+    - id: "@HungyiLeeNTU"  # Hung-yi Lee
       type: "zh"
       min_duration_mins: 30
-    - id: "UCxG6Tbopv4XcHfem65bgFeg"  # SuperSimpleSongs
+    - id: "@SuperSimpleSongs"  # SuperSimpleSongs
       type: "baby" 
       min_duration_mins: 30
-    - id: "UCNR06PEAvBj_siYZCBtk1hw"  # SuperSimplePlay with Caitie
+    - id: "@SuperSimplePlay"  # SuperSimplePlay with Caitie
       type: "baby" 
       min_duration_mins: 30
-    - id: "UCk4mxleDfaMqdm5kHISD3qA"  # PyDataTV
+    - id: "@PyDataTV"  # PyDataTV
       type: "tech"  
       min_duration_mins: 30
-    - id: "UCKelCK4ZaO6HeEI1KQjqzWA"  # The AI Daily Brief: Artificial Intelligence News
+    - id: "@AIDailyBrief"  # The AI Daily Brief: Artificial Intelligence News
       type: "tech"
       min_duration_mins: 15
-    - id: "UCG2CL6EUjG8TVT1Tpl9nJdg"  # Ms Rachel - Toddler Learning Videos
+    - id: "@msrachel"  # Ms Rachel - Toddler Learning Videos
       type: "baby"
       min_duration_mins: 30
-    - id: "UChpleBmo18P08aKCIgti38g"  # Matt Wolfe
+    - id: "@mreflow"  # Matt Wolfe
       type: "tech" 
       min_duration_mins: 30
-    - id: "UC6t1O76G0jYXOAoYCm153dA"  # Lenny's Podcast
+    - id: "@LennysPodcast"  # Lenny's Podcast
       type: "interview"
       min_duration_mins: 30
-    - id: "UCZa18YV7qayTh-MRIrBhDpA"  # Dwarkesh Patel
+    - id: "@DwarkeshPatel"  # Dwarkesh Patel
       type: "interview"
       min_duration_mins: 30
     
