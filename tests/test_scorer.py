@@ -1,6 +1,6 @@
-import sys
-sys.path.insert(0, r'C:\Users\dli\Projects\MyTest\Subtitle')
-from transcriber import SemanticBreakScorer
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from core.transcriber import SemanticBreakScorer
 
 sc = SemanticBreakScorer()
 

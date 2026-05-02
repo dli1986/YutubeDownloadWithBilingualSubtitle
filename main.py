@@ -9,15 +9,15 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 
-from utils import load_config, setup_logging, load_video_urls, sanitize_filename, get_output_path
-from cache_manager import CacheManager
-from downloader import VideoDownloader
-from transcriber import WhisperTranscriber
-from translator import LLMTranslator
-from subtitle_merger import SubtitleMerger
-from video_processor import VideoProcessor
-from channel_scanner import scan_channels
-from bilibili_uploader import BilibiliUploader
+from core.utils import load_config, setup_logging, load_video_urls, sanitize_filename, get_output_path
+from core.cache_manager import CacheManager
+from core.downloader import VideoDownloader
+from core.transcriber import WhisperTranscriber
+from core.translator import LLMTranslator
+from core.subtitle_merger import SubtitleMerger
+from core.video_processor import VideoProcessor
+from core.channel_scanner import scan_channels
+from uploader.bilibili_uploader import BilibiliUploader
 
 
 logger = logging.getLogger(__name__)

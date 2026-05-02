@@ -1,3 +1,4 @@
+# 注意：必须从项目根目录运行：python tests/tools/_show_uploaded.py
 import json
 
 CACHE_FILE = './cache/processed_videos.json'

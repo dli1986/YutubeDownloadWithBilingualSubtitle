@@ -3,7 +3,8 @@
 用于验证原始字幕优先，Whisper作为备选方案
 """
 
-import sys
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from main import SubtitleGenerator
 
 def test_subtitle_strategy():

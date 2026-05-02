@@ -1,4 +1,6 @@
-"""快速诊断 bilibili upload 卡住在哪一步。"""
+"""快速诊断 bilibili upload 卡位在哪一步。
+注意：必须从项目根目录运行：python tests/tools/_diag_upload.py
+"""
 import asyncio, json, os, sys, subprocess
 sys.path.insert(0, '.')
 

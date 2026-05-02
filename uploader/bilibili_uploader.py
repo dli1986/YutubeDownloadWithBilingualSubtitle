@@ -607,13 +607,17 @@ class BilibiliUploader:
         """
         对旧版 cache（缺少 output_video 字段）尝试推算输出视频路径。
         路径规则：output_dir/<type>/<video_id>/<title>.bilingual.mp4
+        必须与 core/utils.py sanitize_filename() + get_output_path() 保持一致。
         """
         title  = meta.get('title', '')
         vtype  = meta.get('type', 'general')
         if not title:
             return None
-        # sanitize_filename 与 main.py 保持一致
-        safe_title = ''.join(c for c in title if c not in r'\/:*?"<>|')
+        # 与 sanitize_filename() 保持完全一致：移除非法字符 + 截断200字
+        import re as _re
+        safe_title = _re.sub(r'[<>:"/\\|?*]', '', title)
+        if len(safe_title) > 200:
+            safe_title = safe_title[:200]
         path = os.path.join(output_dir, vtype, video_id, f"{safe_title}.bilingual.mp4")
         if os.path.exists(path):
             logger.debug(f"  fallback output_video 重建成功: {path}")

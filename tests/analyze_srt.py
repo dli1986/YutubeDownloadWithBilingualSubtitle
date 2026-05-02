@@ -1,3 +1,4 @@
+# 注意：必须从项目根目录运行：python tests/analyze_srt.py
 import re
 
 with open('cache/xUxhqJLVgRE/subtitle.en.srt', encoding='utf-8') as f:
