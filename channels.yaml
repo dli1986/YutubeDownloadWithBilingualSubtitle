@@ -33,7 +33,7 @@ channels:
       type: "baby" 
       min_duration_mins: 30
     - id: "@PyDataTV"  # PyDataTV
-      type: "tech"  
+      type: "python"  
       min_duration_mins: 30
     - id: "@AIDailyBrief"  # The AI Daily Brief: Artificial Intelligence News
       type: "tech"

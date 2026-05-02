@@ -205,8 +205,9 @@ def scan_channels(config: dict, channels_file: str = './channels.yaml') -> List[
                     continue
                 vid_url = f"https://www.youtube.com/watch?v={vid_id}"
                 new_entries.append({
-                    'url':  vid_url,
-                    'type': ch_type,
+                    'url':        vid_url,
+                    'type':       ch_type,
+                    'channel_id': ch_id,
                     'note': f"channel:{ch_id}  title:{entry.get('title', '')}",
                 })
                 found_ids.append(vid_id)

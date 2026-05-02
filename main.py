@@ -17,6 +17,7 @@ from translator import LLMTranslator
 from subtitle_merger import SubtitleMerger
 from video_processor import VideoProcessor
 from channel_scanner import scan_channels
+from bilibili_uploader import BilibiliUploader
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,14 @@ class SubtitleGenerator:
         self.translator = LLMTranslator(self.config)
         self.subtitle_merger = SubtitleMerger(self.config)
         self.video_processor = VideoProcessor(self.config)
-        
+
+        # B站上传模块（可选，配置文件不存在时禁用）
+        bili_cfg = './bili_upload.yaml'
+        if os.path.exists(bili_cfg):
+            self.bili_uploader = BilibiliUploader(bili_cfg)
+        else:
+            self.bili_uploader = None
+
         # 创建必要的目录
         self._setup_directories()
     
@@ -149,6 +157,7 @@ class SubtitleGenerator:
                 raise Exception("字幕合并失败")
             
             # 6. 嵌入字幕到视频（可选）
+            output_video_path = None
             if self.config['video_processor']['embed_subtitles']:
                 output_video_path = get_output_path(
                     video_id,
@@ -159,7 +168,8 @@ class SubtitleGenerator:
                 
                 if not self.video_processor.embed_subtitle(video_path, bilingual_srt_path, output_video_path):
                     logger.warning("字幕嵌入失败，但字幕文件已生成")
-            
+                    output_video_path = None
+
             # 7. 标记为已处理
             self.cache_manager.mark_processed(url, {
                 'video_id': video_id,
@@ -167,7 +177,9 @@ class SubtitleGenerator:
                 'type': video_type,
                 'en_subtitle': en_srt_path,
                 'zh_subtitle': zh_srt_path,
-                'bilingual_subtitle': bilingual_srt_path
+                'bilingual_subtitle': bilingual_srt_path,
+                'output_video': output_video_path,   # 供 bilibili_uploader 使用
+                'channel_id': video_entry.get('channel_id', ''),
             })
             
             logger.info(f"\n{'='*50}")
@@ -550,6 +562,16 @@ class SubtitleGenerator:
         logger.info(f"  总计: {len(combined)}")
         logger.info(f"{'='*50}\n")
 
+        # ── [2] B站上传：处理完成后自动上传待上传视频 ──────────────────
+        if self.bili_uploader is not None:
+            logger.info("\n" + "="*50)
+            logger.info("开始B站上传...")
+            self.bili_uploader.upload_pending(
+                self.cache_manager,
+                output_dir=self.config['cache']['output_dir']
+            )
+        # ────────────────────────────────────────────────────────────
+
 
 def main():
     """主函数"""
@@ -567,7 +589,17 @@ def main():
                        help='仅重新嵌入字幕，跳过下载/转录/翻译（传入 video_id，如 VnxyEGCIi2Y）')
     parser.add_argument('--reprocess-subtitle', metavar='VIDEO_ID',
                        help='重新处理字幕（VTT->SRT->翻译->合并->嵌入），跳过视频下载（传入 video_id）')
-    
+    parser.add_argument('--bili-login', action='store_true',
+                       help='扫码登录B站，生成凭证文件（首次使用必须执行）')
+    parser.add_argument('--upload-only', action='store_true',
+                       help='跳过视频下载/处理，仅对已处理但未上传的视频执行B站上传')
+    parser.add_argument('--mark-uploaded', metavar='VIDEO_ID',
+                       help='将指定 video_id 标记为已手动上传B站（跳过自动上传），可配合 --bvid 记录BV号')
+    parser.add_argument('--bvid', default='',
+                       help='配合 --mark-uploaded 使用，记录B站 BV 号（可选）')
+    parser.add_argument('--fix-series', action='store_true',
+                       help='对所有已上传（upload_status=uploaded）但 series_fixed 未标记的视频，补充添加到B站系列（视频过审后运行）')
+
     args = parser.parse_args()
     
     try:
@@ -577,6 +609,39 @@ def main():
             generator.embed_only(args.embed_only)
         elif args.reprocess_subtitle:
             generator.reprocess_subtitle(args.reprocess_subtitle)
+        elif args.bili_login:
+            if generator.bili_uploader is None:
+                logger.error("bili_upload.yaml 不存在，无法执行B站登录")
+                sys.exit(1)
+            generator.bili_uploader.login_qrcode()
+        elif args.upload_only:
+            if generator.bili_uploader is None:
+                logger.error("bili_upload.yaml 不存在，无法执行B站上传")
+                sys.exit(1)
+            generator.bili_uploader.upload_pending(
+                generator.cache_manager,
+                output_dir=generator.config['cache']['output_dir']
+            )
+        elif args.mark_uploaded:
+            # 将指定 video_id 标记为已手动上传（跳过自动上传队列）
+            video_id = args.mark_uploaded
+            entry = generator.cache_manager.cache.get(video_id)
+            if not entry:
+                logger.error(f"cache 中未找到 video_id={video_id}")
+                sys.exit(1)
+            entry.setdefault('metadata', {}).update({
+                'upload_status': 'uploaded',
+                'bvid': args.bvid or 'manual',
+                'uploaded_at': __import__('datetime').datetime.now().isoformat(),
+            })
+            generator.cache_manager._save_cache()
+            bvid_info = f" BV号: {args.bvid}" if args.bvid else ""
+            logger.info(f"✓ 已标记为手动上传: {video_id}{bvid_info}")
+        elif args.fix_series:
+            if generator.bili_uploader is None:
+                logger.error("bili_upload.yaml 不存在，无法执行系列修复")
+                sys.exit(1)
+            generator.bili_uploader.fix_series(generator.cache_manager)
         elif args.url:
             # 处理单个视频
             video_entry = {

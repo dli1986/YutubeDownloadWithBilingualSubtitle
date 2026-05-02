@@ -1,0 +1,155 @@
+# B站上传配置
+# 凭证通过首次登录生成，运行：python main.py --bili-login
+
+credentials:
+  # bilibili-api-python 持久化凭证文件路径
+  # 首次 --bili-login 后自动生成，之后程序自动读取（有效期约半年）
+  cookie_file: "./cache/bili_cookies.json"
+
+# 上传规则：按视频类型（对应 config.yaml video_types 的键）配置上传参数
+# 未在此列出的类型不会自动上传
+upload_rules:
+
+  baby:
+    # B站分区 tid（生活 > 亲子 = 254）
+    # 分区参考：254=亲子 231=计算机技术 207=社科·法律 179=生活其他
+    # 合集（新版）：bilibili-api 不支持上传后添加，需在创作中心手动操作（season_id 仅用于记录）
+    # 系列（旧版合集）：可通过 API 添加，但要求视频已过审（运行 --fix-series 补充）
+    tid: 254
+    # 合集 ID（season_id）：从B站创作中心 -> 合集管理 -> 合集URL中的数字
+    # null 表示不加入任何合集
+    season_id: 8008303
+    section_id: 8897999        # ← 在创作中心合集页面 URL 中获取，或首次上传后从日志查看
+    # 系列 ID（series_id）：space.bilibili.com/<uid>/channel/seriesdetail?sid=<series_id>
+    # 支持两种写法：
+    #   标量：所有 baby 视频进同一个系列
+    #     series_id: 5116045
+    #   映射：按来源 YouTube 频道路由到不同系列（channel_id 即 channels.yaml 中的 id）
+    #     series_id:
+    #       "@SuperSimpleSongs": 111111
+    #       "@SuperSimplePlay":  222222
+    #       _default: null        # 其他来源（如 videos.txt 手动添加的）不加系列
+    series_id:
+      "@SuperSimpleSongs": 5116051   # ← 替换为实际系列ID（超简单儿童歌曲）
+      "@SuperSimplePlay":  5116049   # ← 替换为实际系列ID（凯蒂的超简单系列）
+      "@msrachel":         5116054   # ← 替换为实际系列ID（Ms Rachel 系列）
+      _default: null              # videos.txt 手动添加的 baby 视频：不加系列
+    # 标签（最多12个）
+    tags:
+      - "少儿英语"
+      - "英语启蒙"
+      - "YouTube"
+      - "双字幕"
+    # 标题模板，支持变量：{title} {youtube_url} {channel}
+    title_template: "{title}"
+    # 简介模板
+    desc_template: |
+      英文原视频：{youtube_url}
+      双语字幕由AI自动生成（Whisper转录 + LLM翻译）。
+    # 是否转载（true=转载，需填写原始链接；false=自制）
+    is_reprint: true
+
+  tech:
+    tid: 231                # 科技 > 计算机技术（B站投稿 API 科技大类下无“人工智能”叶子分区）
+    # 合集（新版）：bilibili-api 不支持上传后添加，需在创作中心手动操作（season_id 仅用于记录）
+    season_id: 8032035
+    section_id: 8924619     # 合集「Youtube人工智能信息技术分享」(8032035) 默认正片分区
+    # 系列（旧版合集）：可通过 API 添加，但要求视频已过审（运行 --fix-series 补充）
+    # 按频道路由系列：目前所有 tech 频道进同一个系列，如未来要对某频道建独立系列，直接加一行即可
+    series_id:
+      "@matthew_berman": 5116045
+      "@AIDailyBrief":   5116045
+      "@mreflow":        5116045
+      _default: 5116045   # videos.txt 手动添加的视频也进这个系列
+    tags:
+      - "AI"
+      - "人工智能"
+      - "技术"
+      - "YouTube"
+      - "双字幕"
+    title_template: "{title}"
+    desc_template: |
+      英文原视频：{youtube_url}
+      双语字幕由AI自动生成（Whisper转录 + LLM翻译）。
+    is_reprint: true
+
+  interview:
+    tid: 231                # 科技 > 计算机技术
+    # interview 与 tech 共享同一个合集和系列，保持一致即可
+    season_id: 8032035
+    section_id: 8924619     # 与 tech 共享同一合集 8032035
+    series_id:
+      "@LennysPodcast":  5116045
+      "@DwarkeshPatel":  5116045
+      _default: 5116045
+    tags:
+      - "访谈"
+      - "AI"
+      - "双字幕"
+      - "YouTube"
+    title_template: "{title}"
+    desc_template: |
+      英文原视频：{youtube_url}
+      双语字幕由AI自动生成（Whisper转录 + LLM翻译）。
+    is_reprint: true
+
+  zh:
+    tid: 231                # 科技 > 计算机技术
+    # 李宏毅课程：系列已有，合集待建（建好后填入 season_id）
+    season_id: 8033403         # ← 待建合集后填入
+    series_id: 5116053         # ← 填入 系列·李宏毅人工智能课程 的 series_id
+    series_id:
+      "@HungyiLeeNTU": 5116053
+      _default: 5116053
+    tags:
+      - "李宏毅"
+      - "机器学习"
+      - "人工智能"
+      - "NTU"
+    title_template: "{title}"
+    desc_template: |
+      原视频：{youtube_url}
+    is_reprint: true
+
+  # ── 待拆分：当前 PyData 频道 type=tech，若要单独管理，将 channels.yaml 中
+  # PyDataTV 的 type 改为 "python"，然后取消下面的注释并填入对应 ID ──────────
+  python:
+    tid: 231                # 科技 > 计算机技术
+    season_id: 8033458       # ← 待建合集后填入
+    series_id: 5116048       # ← 填入 系列·Python技术分享 的 series_id
+    tags:
+      - "Python"
+      - "数据科学"
+      - "双字幕"
+      - "YouTube"
+    title_template: "{title}"
+    desc_template: |
+      英文原视频：{youtube_url}
+      双语字幕由AI自动生成（Whisper转录 + LLM翻译）。
+    is_reprint: true
+  # ────────────────────────────────────────────────────────────────────
+
+  documentary:
+    tid: 177                # 纪录片 > 人文·历史
+    season_id: null
+    series_id: null
+    tags:
+      - "纪录片"
+      - "双字幕"
+      - "YouTube"
+    title_template: "{title}"
+    desc_template: |
+      英文原视频：{youtube_url}
+      双语字幕由AI自动生成（Whisper转录 + LLM翻译）。
+    is_reprint: true
+
+# 上传行为配置
+behavior:
+  # 每次上传后的间隔（秒），避免触发B站限流
+  upload_interval_secs: 30
+  # 上传失败后最大重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_delay_secs: 60
+  # 是否在上传完成后发送日志摘要（目前仅打印）
+  log_summary: true

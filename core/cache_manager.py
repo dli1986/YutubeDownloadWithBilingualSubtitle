@@ -75,6 +75,29 @@ class CacheManager:
             "status": "failed"
         }
         self._save_cache()
+
+    def mark_uploaded(self, url: str, bvid: str):
+        """标记视频已上传到B站"""
+        video_id = self.get_video_id(url)
+        if video_id not in self.cache:
+            return
+        self.cache[video_id].setdefault('metadata', {}).update({
+            'upload_status': 'uploaded',
+            'bvid': bvid,
+            'uploaded_at': datetime.now().isoformat(),
+        })
+        self._save_cache()
+
+    def mark_upload_failed(self, url: str, error: str):
+        """标记视频上传B站失败"""
+        video_id = self.get_video_id(url)
+        if video_id not in self.cache:
+            return
+        self.cache[video_id].setdefault('metadata', {}).update({
+            'upload_status': 'upload_failed',
+            'upload_error': error,
+        })
+        self._save_cache()
     
     def get_status(self, url: str) -> Optional[Dict]:
         """获取视频处理状态"""

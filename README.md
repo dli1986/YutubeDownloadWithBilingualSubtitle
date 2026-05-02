@@ -6,6 +6,7 @@
 
 - [功能特性](#功能特性)
 - [技术栈](#技术栈)
+- [完整处理链路](#完整处理链路)
 - [系统架构](#系统架构)
 - [安装部署](#安装部署)
 - [配置说明](#配置说明)
@@ -46,6 +47,12 @@
    - 可选择嵌入硬字幕到视频
    - 支持软字幕附加
 
+6. **自动上传至 Bilibili**
+   - 处理完成后自动投稿到B站
+   - 根据视频类型和来源频道自动匹配合集、系列
+   - 扫码登录，凭证本地持久化，无需每次登录
+   - 上传状态写回缓存，支持断点续传和失败重试
+
 ## 🛠️ 技术栈
 
 ### 核心技术
@@ -68,33 +75,113 @@ ffmpeg-python>=0.2.0      # 视频处理
 ollama>=0.1.0             # 本地LLM
 openai>=1.0.0             # OpenAI API
 anthropic>=0.18.0         # Claude API
+bilibili-api-python       # B站上传
 pyyaml>=6.0               # 配置文件
 python-dotenv>=1.0.0      # 环境变量
 tqdm>=4.65.0              # 进度条
 ```
 
+## 🔄 完整处理链路
+
+```
+channels.yaml
+    id: "@matthew_berman"
+    type: "tech"
+         │
+         ▼
+[channel_scanner.py] 启动时扫描频道，发现新视频
+    → video_entry = {url, type:"tech", channel_id:"@matthew_berman"}
+         │
+         ▼
+[main.py] process_video()
+    1. 下载视频+字幕（yt-dlp）
+    2. 字幕处理（json3→SRT，SemanticBreakScorer 语义分句）
+    3. LLM翻译（Ollama / OpenAI / Claude）
+    4. 合并双语字幕
+    5. ffmpeg 硬字幕嵌入 → output/tech/xxx.bilingual.mp4
+    6. cache_manager.mark_processed()
+         写入: title, type, output_video, channel_id
+         upload_status = null（待上传）
+         │
+         ▼
+[bilibili_uploader.py] upload_pending()
+    从 cache 找 upload_status==null 的视频
+    取 type="tech", channel_id="@matthew_berman"
+         │
+         ▼
+    _build_meta() 查 bili_upload.yaml
+    ┌─────────────────────────────────────┐
+    │ tech:                               │
+    │   tid: 188         → B站分区        │
+    │   season_id: xxx   → 加入合集       │
+    │   series_id:                        │
+    │     "@matthew_berman": xxx → 系列   │
+    │   tags: [AI, 双字幕, ...]           │
+    │   title: {title}                    │
+    │   desc: 原视频:{youtube_url}        │
+    │   is_reprint: true → copyright=2   │
+    └─────────────────────────────────────┘
+         │
+         ▼
+    _upload_async()
+    ① VideoUploader.start()  → 投稿（tid/tags/title/desc/copyright/source）
+    ② _add_to_season(bvid)   → 加入合集
+    ③ _add_to_series(bvid)   → 加入系列
+         │
+         ▼
+    cache_manager 写回
+    upload_status = "uploaded", bvid = "BVxxx"
+```
+
+### 投稿必填项对照
+
+| B站投稿必填项 | 来源 |
+|---|---|
+| 视频文件 | `output/<type>/xxx.bilingual.mp4`（ffmpeg 硬字幕输出） |
+| 标题 | `title_template` 渲染后（最长80字自动截断） |
+| 分区 tid | `bili_upload.yaml → <type>.tid` |
+| 标签 | `bili_upload.yaml → <type>.tags` |
+| 类型（转载/自制）| `is_reprint: true` → copyright=2，并附原链接 |
+| 简介 | `desc_template` 渲染后（含原视频 URL） |
+
+合集（season）和系列（series）是投稿完成后的附加操作，任一步骤失败只打 warning，不影响投稿本身。
+
+---
+
 ## 🏗️ 系统架构
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         主程序 (main.py)                      │
-│                    流程编排 + 错误处理                         │
-└────────────┬────────────────────────────────────────────────┘
-             │
-    ┌────────┴────────┬─────────────┬──────────────┬──────────┐
-    │                 │             │              │          │
-┌───▼────┐    ┌──────▼──────┐  ┌──▼─────┐   ┌────▼────┐  ┌──▼──────┐
-│下载模块 │    │转录模块      │  │翻译模块 │   │合并模块  │  │视频处理  │
-│Downloader│   │Transcriber  │  │Translator│  │Merger   │  │Processor│
-└───┬────┘    └──────┬──────┘  └──┬─────┘   └────┬────┘  └──┬──────┘
-    │                │             │              │          │
-    │  yt-dlp        │  Whisper    │  LLM API     │  pysrt   │  ffmpeg
-    └────────────────┴─────────────┴──────────────┴──────────┘
-                            │
-                    ┌───────▼────────┐
-                    │  缓存管理模块    │
-                    │  Cache Manager  │
-                    └────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                         主程序 (main.py)                          │
+│                    流程编排 + 错误处理                             │
+└──────────┬──────────────────────────────────────────────────────┘
+           │
+  ┌────────┴──────────────────────────────────────────────┐
+  │  频道扫描 channel_scanner.py（启动时）                  │
+  │  读取 channels.yaml → 发现新视频 → 注入 channel_id     │
+  └────────┬──────────────────────────────────────────────┘
+           │
+  ┌────────┴───────┬──────────────┬──────────────┬──────────┐
+  │                │              │              │          │
+┌─▼──────┐  ┌─────▼───────┐  ┌──▼─────┐  ┌────▼────┐  ┌──▼──────┐
+│下载模块  │  │转录模块      │  │翻译模块 │  │合并模块  │  │视频处理  │
+│Downloader│  │Transcriber  │  │Translator│ │Merger   │  │Processor│
+└─┬──────┘  └─────┬───────┘  └──┬─────┘  └────┬────┘  └──┬──────┘
+  │ yt-dlp        │ Whisper/    │ Ollama/      │ pysrt    │ ffmpeg
+  │               │ SemanticBreak│ OpenAI/Claude│          │
+  └───────────────┴─────────────┴──────────────┴──────────┘
+                                    │
+                          ┌─────────▼─────────┐
+                          │   缓存管理模块      │
+                          │   Cache Manager    │
+                          │  upload_status跟踪 │
+                          └─────────┬─────────┘
+                                    │
+                          ┌─────────▼─────────┐
+                          │  B站上传模块        │
+                          │ BilibiliUploader   │
+                          │ bilibili_uploader.py│
+                          └───────────────────┘
 ```
 
 ### 模块说明
@@ -127,9 +214,21 @@ tqdm>=4.65.0              # 进度条
 6. **cache_manager.py** - 缓存管理模块
    - 已处理视频跟踪
    - 失败记录和重试
+   - 上传状态跟踪（`upload_status` / `bvid`）
    - 统计信息
 
-7. **utils.py** - 工具函数模块
+7. **channel_scanner.py** - 频道扫描模块
+   - 读取 `channels.yaml` 订阅列表
+   - 增量扫描，只返回新视频（archive 去重）
+   - 注入 `channel_id` 字段供上传路由使用
+
+8. **bilibili_uploader.py** - B站上传模块
+   - 扫码登录，凭证持久化（`cache/bili_cookies.json`）
+   - 读取 `bili_upload.yaml` 规则，按 type + channel_id 路由合集/系列
+   - 自动投稿 → 加合集 → 加系列
+   - 失败重试，状态写回缓存
+
+9. **utils.py** - 工具函数模块
    - 配置加载
    - 日志设置
    - 通用辅助函数
@@ -264,6 +363,66 @@ translator:
     temperature: 0.3
 ```
 
+### B站上传配置（bili_upload.yaml）
+
+控制自动上传行为，支持按视频类型和来源频道精细路由：
+
+```yaml
+credentials:
+  cookie_file: "./cache/bili_cookies.json"  # 首次 --bili-login 后自动生成
+
+upload_rules:
+  tech:
+    tid: 188                # B站分区 ID（188=人工智能）
+    season_id: 8032035      # 合集 ID（投稿时加入）
+    # series_id 支持两种写法：
+    # 写法1 - 标量：所有 tech 视频进同一个系列
+    #   series_id: 5116045
+    # 写法2 - 映射：按来源 YouTube 频道路由到不同系列
+    series_id:
+      "@matthew_berman": 5116045
+      "@AIDailyBrief":   5116045
+      _default: 5116045    # videos.txt 手动添加的走这里
+    tags: ["AI", "双字幕", "YouTube"]
+    title_template: "{title}"
+    desc_template: "英文原视频：{youtube_url}\n双语字幕由AI自动生成。"
+    is_reprint: true
+
+  baby:
+    tid: 200
+    season_id: 8008303
+    series_id:             # 按来源频道分系列
+      "@SuperSimpleSongs": 5116051
+      "@SuperSimplePlay":  5116049
+      "@msrachel":         5116054
+      _default: null
+    tags: ["少儿英语", "英语启蒙", "双字幕"]
+    ...
+
+behavior:
+  upload_interval_secs: 30   # 上传间隔，避免触发限流
+  max_retries: 3
+```
+
+**如何获取 season_id / series_id：**
+- 合集：创作中心 → 合集管理 → 目标合集 URL 中的数字
+- 系列：`space.bilibili.com/<uid>/lists/<series_id>?type=series` 中的数字
+
+**如何扩展新分类：**
+
+```yaml
+# 1. channels.yaml 中将频道 type 改为新名称
+- id: "@PyDataTV"
+  type: "python"      # 原来是 tech
+
+# 2. bili_upload.yaml 中取消注释并填入 ID
+python:
+  tid: 188
+  season_id: null     # 建好合集后填入
+  series_id: null     # 建好系列后填入
+  ...
+```
+
 ### 视频类型配置
 
 视频类型由 `videos.txt` 中 URL 后的标注**人工指定**，类型名同时决定输出目录结构（`output/<类型>/`）。`config.yaml` 中每个类型只需配置翻译风格，新增类型无需修改任何代码：
@@ -362,18 +521,24 @@ python main.py --help
 参数:
   --config CONFIG              配置文件路径（默认：./config.yaml）
   --videos VIDEOS              视频列表文件路径（默认：./videos.txt）
+  --channels CHANNELS          频道订阅文件路径（默认：./channels.yaml）
   --url URL                    处理单个视频URL
   --type TYPE                  视频类型（对应 config.yaml 中 video_types 的 key，如 baby/tech/interview）
   --embed-only VIDEO_ID        仅重新嵌入字幕，跳过下载/转录/翻译
                                用途：ffmpeg参数调整后重新生成视频，不重新处理字幕
   --reprocess-subtitle VIDEO_ID  重新处理字幕流程（VTT→SRT→翻译→合并→嵌入），跳过视频下载
                                用途：修复字幕质量问题、更换翻译模型、调整翻译风格后重新翻译
+  --bili-login                 扫码登录B站，生成凭证文件（首次使用必须执行一次）
+  --upload-only                跳过下载/处理，仅对已处理但未上传的视频执行B站上传
 ```
 
 ### 分段处理示例
 
 ```bash
-# 完整流程
+# 完整流程（下载 → 字幕 → 翻译 → 嵌入 → 上传）
+python main.py
+
+# 处理单个视频（含上传）
 python main.py --url "https://www.youtube.com/watch?v=xxxxx" --type interview
 
 # 只重新翻译+合并+嵌入（视频已下载，修复字幕内容问题）
@@ -381,7 +546,27 @@ python main.py --reprocess-subtitle VIDEO_ID
 
 # 只重新嵌入（字幕已就绪，修复视频编码/路径问题）
 python main.py --embed-only VIDEO_ID
+
+# B站首次登录（只需运行一次，生成凭证文件）
+python main.py --bili-login
+
+# 仅执行B站上传（视频已处理完成，补传或测试上传）
+python main.py --upload-only
 ```
+
+### B站上传状态
+
+上传状态记录在 `cache/processed_videos.json` 中，每个视频的 `metadata` 包含：
+
+```json
+{
+  "upload_status": "uploaded",   // null=待上传 / uploaded=成功 / upload_failed=失败
+  "bvid": "BV1xx411c7mD",       // 上传成功后的B站视频ID
+  "uploaded_at": "2026-05-02T..."
+}
+```
+
+重新运行 `--upload-only` 会自动重试所有 `upload_status=null` 或 `upload_failed` 的视频。
 
 ### 输出结构
 
@@ -611,28 +796,36 @@ translated_combined = self.translate_text(combined_text, video_type)
 
 ```
 Subtitle/
-├── main.py                 # 主程序入口
-├── config.yaml            # 配置文件
-├── requirements.txt       # Python依赖
-├── videos.txt             # 视频URL列表
+├── main.py                    # 主程序入口
+├── config.yaml               # 系统配置（下载/转录/翻译/视频类型）
+├── channels.yaml             # YouTube 频道订阅列表
+├── bili_upload.yaml          # B站上传配置（分区/合集/系列/标签）
+├── requirements.txt          # Python依赖
+├── videos.txt                # 手动视频URL列表
 │
-├── downloader.py          # 视频下载模块
-├── transcriber.py         # Whisper转录模块
-├── translator.py          # LLM翻译模块
-├── subtitle_merger.py     # 字幕合并模块
-├── video_processor.py     # 视频处理模块
-├── cache_manager.py       # 缓存管理模块
-├── utils.py               # 工具函数模块
-├── bilingual_merge.py     # 原始字幕合并脚本
+├── downloader.py             # 视频下载模块（yt-dlp）
+├── transcriber.py            # 转录模块（Whisper + SemanticBreakScorer）
+├── translator.py             # LLM翻译模块（Ollama/OpenAI/Claude）
+├── subtitle_merger.py        # 字幕合并模块
+├── video_processor.py        # 视频处理模块（ffmpeg）
+├── cache_manager.py          # 缓存管理模块（含上传状态跟踪）
+├── channel_scanner.py        # 频道扫描模块（增量订阅）
+├── bilibili_uploader.py      # B站自动上传模块
+├── utils.py                  # 工具函数模块
 │
-├── cache/                 # 缓存目录
-│   ├── processed_videos.json  # 处理记录
-│   └── VIDEO_ID/          # 各视频的缓存文件
+├── cache/                    # 缓存目录
+│   ├── processed_videos.json    # 处理+上传状态记录
+│   ├── bili_cookies.json        # B站登录凭证（--bili-login 生成）
+│   ├── channel_<id>.archive     # 各频道已处理ID档案（增量去重）
+│   └── VIDEO_ID/                # 各视频的原始缓存文件
 │
-├── output/                # 输出目录
-│   └── VIDEO_ID/          # 各视频的输出文件
+├── output/                   # 输出目录
+│   └── <type>/               # 按视频类型分目录
+│       └── VIDEO_ID/
+│           ├── TITLE.bilingual.srt   # 双语字幕
+│           └── TITLE.bilingual.mp4  # 硬字幕视频
 │
-└── logs/                  # 日志目录
+└── logs/                     # 日志目录
     └── subtitle_generator.log
 ```
 
