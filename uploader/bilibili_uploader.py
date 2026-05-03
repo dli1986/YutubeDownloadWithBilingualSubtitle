@@ -579,6 +579,7 @@ class BilibiliUploader:
             channel_id = meta.get('channel_id') or ''
             rule = self.rules.get(vtype)
             if not rule:
+                logger.debug(f"  跳过 {video_id}: 类型 '{vtype}' 无上传规则")
                 continue
             raw_series = rule.get('series_id')
             if isinstance(raw_series, dict):
@@ -587,6 +588,11 @@ class BilibiliUploader:
             else:
                 series_id = raw_series
             if not series_id:
+                logger.warning(
+                    f"  跳过 {video_id} ({meta.get('title','')[:30]}): "
+                    f"type={vtype} channel_id={channel_id!r} → 无匹配系列。"
+                    f"请在 cache 中补充 channel_id 或在 bili_upload.yaml 中设置 _default。"
+                )
                 continue
 
             logger.info(f"补充系列 {series_id}: {bvid} ({meta.get('title','')[:40]})")

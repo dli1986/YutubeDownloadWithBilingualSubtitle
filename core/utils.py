@@ -53,14 +53,26 @@ def load_video_urls(file_path: str = "./videos.txt") -> List[Dict[str, str]]:
                 continue
             
             # 解析行内容
-            parts = line.split(None, 2)  # 最多分割成3部分
+            # 格式: URL [type] [@channel] [note]
+            # @channel 可选，若 parts[2] 以 @ 开头则作为 channel_id
+            parts = line.split(None, 3)  # 最多分割成4部分
             if not parts:
                 continue
-            
+
+            video_type = parts[1] if len(parts) > 1 else 'general'
+            rest = parts[2] if len(parts) > 2 else ''
+            note = parts[3] if len(parts) > 3 else ''
+            if rest.startswith('@'):
+                channel_id = rest
+            else:
+                channel_id = ''
+                note = (rest + ' ' + note).strip()
+
             video_entry = {
-                "url": parts[0],
-                "type": parts[1] if len(parts) > 1 else "general",
-                "note": parts[2] if len(parts) > 2 else ""
+                'url': parts[0],
+                'type': video_type,
+                'channel_id': channel_id,
+                'note': note,
             }
             videos.append(video_entry)
     

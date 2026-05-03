@@ -126,7 +126,7 @@ channels.yaml
     _upload_async()
     ① VideoUploader.start()      → 投稿（tid/tags/title/desc/copyright/source）
     ② _add_to_season(aid, cid)   → 投稿完成后立即加入合集（需 section_id）
-    ③ _add_to_series(bvid)       → 过审后通过 --fix-series 单独运行
+    ③ _add_to_series(bvid)       → 过审后由下次运行主程序时自动补充
          │
          ▼
     cache_manager 写回
@@ -146,7 +146,7 @@ channels.yaml
 
 **合集（season）** 在投稿完成后**立即**自动添加，依赖 `section_id` 精确定位合集内分区，通过 `member.bilibili.com` API 直接写入，失败只打 warning 不影响投稿本身。
 
-**系列（channel_series）** 需视频**过审后**才可通过 API 添加，运行 `python main.py --fix-series` 单独补充。
+**系列（channel_series）** 需视频**过审后**才可通过 API 添加。主程序每次启动时会在阶段 [-1] 自动对上次遗留的 `series_fixed!=True` 视频补充系列。也可随时手动运行 `python main.py --fix-series` 强制触发。
 
 ---
 
@@ -537,14 +537,14 @@ python main.py --help
   --upload-only                跳过下载/处理，仅对已处理但未上传的视频执行B站上传
   --mark-uploaded VIDEO_ID     手动标记某视频为已上传（补录历史），配合 --bvid 使用
   --bvid BVID                  配合 --mark-uploaded，填入已知的 BV 号（可选）
-  --fix-series                 对已上传但 series_fixed!=True 的视频补充添加系列
-                               视频需过审后才能成功（一般上传次日运行）
+  --fix-series                 对已上传且 series_fixed!=True 的视频补充添加系列
+                               （主程序每次启动时自动执行，此参数可强制手动触发）
 ```
 
 ### 分段处理示例
 
 ```bash
-# 完整流程（下载 → 字幕 → 翻译 → 嵌入 → 上传）
+# 完整流程（下载 → 字幕 → 翻译 → 嵌入 → 上传，并自动补充上次遗留的系列归档）
 python main.py
 
 # 处理单个视频（含上传）
@@ -565,7 +565,7 @@ python main.py --upload-only
 # 手动标记已上传（补录历史视频，跳过上传直接记录 bvid）
 python main.py --mark-uploaded VIDEO_ID --bvid BV1xxxxxx
 
-# 对已上传视频补充添加 B站系列（上传次日视频过审后运行）
+# 手动触发系列归档（通常无需，主程序启动时已自动执行）
 python main.py --fix-series
 ```
 

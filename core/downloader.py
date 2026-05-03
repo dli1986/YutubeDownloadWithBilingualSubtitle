@@ -96,6 +96,7 @@ class VideoDownloader:
                     'duration': info.get('duration'),
                     'description': info.get('description'),
                     'uploader': info.get('uploader'),
+                    'uploader_id': info.get('uploader_id'),
                     'upload_date': info.get('upload_date'),
                 }
         except Exception as e:
@@ -350,6 +351,7 @@ class VideoDownloader:
                     'duration': dl_info.get('duration'),
                     'description': dl_info.get('description'),
                     'uploader': dl_info.get('uploader'),
+                    'uploader_id': dl_info.get('uploader_id'),   # e.g. '@SuperSimplePlay'
                     'upload_date': dl_info.get('upload_date'),
                 }
 

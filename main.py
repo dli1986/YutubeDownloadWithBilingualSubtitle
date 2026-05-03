@@ -179,7 +179,8 @@ class SubtitleGenerator:
                 'zh_subtitle': zh_srt_path,
                 'bilingual_subtitle': bilingual_srt_path,
                 'output_video': output_video_path,   # 供 bilibili_uploader 使用
-                'channel_id': video_entry.get('channel_id', ''),
+                # channel_id: 优先 videos.txt/channel_scanner 显式指定，fallback 到 yt-dlp 元数据
+                'channel_id': video_entry.get('channel_id') or video_info.get('uploader_id', ''),
             })
             
             logger.info(f"\n{'='*50}")
@@ -512,8 +513,14 @@ class SubtitleGenerator:
                     channels_file: str = "./channels.yaml"):
         """
         处理视频列表中的所有视频。
-        启动时先扫描 channels.yaml 中的订阅频道，将新视频追加到队列头部。
+        启动时先对上次遗留的未归档视频补充系列，再扫描频道、处理新视频。
         """
+        # ── [-1] 自动补充系列：对上次已上传但 series_fixed!=True 的视频 ────
+        # 距上次运行通常已过数小时，B站自动审核（30分钟内）基本完成
+        if self.bili_uploader is not None:
+            self.bili_uploader.fix_series(self.cache_manager)
+        # ────────────────────────────────────────────────────────────
+
         # ── [0] 频道扫描：发现新视频并前置入队 ───────────────────────────
         logger.info("\n" + "="*50)
         logger.info("扫描订阅频道（channels.yaml）...")
