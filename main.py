@@ -97,6 +97,9 @@ class SubtitleGenerator:
 
             logger.info(f"视频标题: {video_title}")
 
+            # 翻译标题为中文供 B 站上传使用（快速小调用；失败时静默回退到原标题）
+            title_zh = self.translator.translate_title(video_title, video_type)
+
             video_path = download_results['video']
 
             # ── 中文源视频快速路径 ──────────────────────────────────────────
@@ -114,6 +117,7 @@ class SubtitleGenerator:
                 self.cache_manager.mark_processed(url, {
                     'video_id': video_id,
                     'title': video_title,
+                    'title_zh': title_zh,
                     'type': video_type,
                     'output_video': output_video_path,
                 })
@@ -174,6 +178,7 @@ class SubtitleGenerator:
             self.cache_manager.mark_processed(url, {
                 'video_id': video_id,
                 'title': video_title,
+                'title_zh': title_zh,
                 'type': video_type,
                 'en_subtitle': en_srt_path,
                 'zh_subtitle': zh_srt_path,

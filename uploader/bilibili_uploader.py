@@ -183,13 +183,18 @@ class BilibiliUploader:
             return None
 
         title_raw = video_entry.get('title', video_entry.get('video_id', ''))
+        title_zh  = video_entry.get('title_zh', '')   # 中文标题（优先用于 B 站展示）
         youtube_url = video_entry.get('url', '')
         channel = video_entry.get('channel', '')
         channel_id = video_entry.get('channel_id', '')  # from channel_scanner
 
+        # {title} 模板变量：有中文翻译时优先使用，否则保留原英文
+        title_display = title_zh or title_raw
+
         def _render(template: str) -> str:
             return (template
-                    .replace('{title}',       title_raw)
+                    .replace('{title}',       title_display)
+                    .replace('{title_en}',    title_raw)
                     .replace('{youtube_url}', youtube_url)
                     .replace('{channel}',     channel))
 
@@ -527,6 +532,7 @@ class BilibiliUploader:
                 'url':          url,
                 'type':         vtype,
                 'title':        title,
+                'title_zh':     meta.get('title_zh', ''),
                 'output_video': output_video,
                 'video_id':     video_id,
                 'channel':      meta.get('channel', ''),

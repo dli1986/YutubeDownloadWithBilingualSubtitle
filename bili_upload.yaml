@@ -116,6 +116,7 @@ upload_rules:
   python:
     tid: 231                # 科技 > 计算机技术
     season_id: 8033458       # ← 待建合集后填入
+    section_id: 8926205
     series_id: 5116048       # ← 填入 系列·Python技术分享 的 series_id
     tags:
       - "Python"

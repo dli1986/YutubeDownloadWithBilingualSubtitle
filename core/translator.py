@@ -193,6 +193,76 @@ Translation:"""
             logger.error(f"Claude翻译失败: {e}")
             return None
     
+    def translate_title(self, title: str, video_type: str = 'general') -> str:
+        """
+        将英文视频标题翻译为中文（B站上传用）。
+        - 保留技术术语、缩写、品牌名、人名等专有名词的原英文形式
+        - 若标题已含大量中文（CJK > 30%）或翻译失败，返回原标题
+        """
+        # 已含较多中文 → 无需翻译
+        cjk_count = sum(1 for c in title if '\u4e00' <= c <= '\u9fff')
+        if len(title) > 0 and cjk_count / len(title) > 0.3:
+            return title
+
+        prompt = (
+            "Translate the following English video title into Chinese for Bilibili (Chinese video platform).\n"
+            "Rules:\n"
+            "1. Keep in original English: acronyms (AI, LLM, RAG, GPU, API, etc.), brand names, "
+            "product names, people's full names, @handles, programming languages and frameworks.\n"
+            "2. Translate only common descriptive English words and phrases into natural Chinese.\n"
+            "3. Output ONLY the translated title text. No quotes, no explanation, no prefix.\n\n"
+            f"Title: {title}"
+        )
+
+        result = None
+        try:
+            provider = self.provider
+            if provider == 'ollama':
+                if not self._ensure_ollama_client():
+                    logger.warning("标题翻译：Ollama 不可用，使用原标题")
+                    return title
+                model = self.config.get('ollama', {}).get('model', 'qwen2.5:7b')
+                response = self.clients['ollama'].generate(
+                    model=model,
+                    prompt=prompt,
+                    options={'temperature': 0.1, 'num_predict': 120, 'top_p': 0.9},
+                )
+                result = response['response'].strip()
+            elif provider == 'openai':
+                if 'openai' not in self.clients:
+                    logger.warning("标题翻译：OpenAI 未初始化，使用原标题")
+                    return title
+                model = self.config.get('openai', {}).get('model', 'gpt-4')
+                response = self.clients['openai'].chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=120,
+                )
+                result = response.choices[0].message.content.strip()
+            elif provider == 'claude':
+                if 'claude' not in self.clients:
+                    logger.warning("标题翻译：Claude 未初始化，使用原标题")
+                    return title
+                model = self.config.get('claude', {}).get('model', 'claude-3-sonnet-20240229')
+                response = self.clients['claude'].messages.create(
+                    model=model,
+                    max_tokens=120,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                result = response.content[0].text.strip()
+        except Exception as e:
+            logger.warning(f"标题翻译失败，使用原标题: {e}")
+            return title
+
+        if not result:
+            logger.warning(f"标题翻译返回空，使用原标题: {title!r}")
+            return title
+
+        translated = result.strip().strip('"').strip("'")
+        logger.info(f"标题翻译: {title!r} → {translated!r}")
+        return translated
+
     def translate_text(self, text: str, video_type: str = "general", provider: Optional[str] = None) -> Optional[str]:
         """
         翻译文本
